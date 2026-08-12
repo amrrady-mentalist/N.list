@@ -12,7 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -101,7 +101,7 @@ private fun NoteCard(
                     modifier = Modifier.align(Alignment.CenterEnd)
                 ) {
                     Icon(
-                        Icons.Filled.PushPin,
+                        Icons.Filled.Star,
                         contentDescription = if (note.pinned) "Unpin" else "Pin",
                         tint = if (note.pinned)
                             androidx.compose.material3.MaterialTheme.colorScheme.primary
