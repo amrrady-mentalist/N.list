@@ -37,6 +37,17 @@ android {
     }
 }
 
+configurations.all {
+    // Belt-and-suspenders: force every androidx.compose.* artifact onto the
+    // BOM-managed version so nothing on the classpath can drag in a stale
+    // Foundation/UI jar and cause ABI mismatches during compilation.
+    resolutionStrategy.eachDependency {
+        if (requested.group == "androidx.compose.foundation" || requested.group == "androidx.compose.ui") {
+            useVersion("1.7.3")
+        }
+    }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
@@ -48,7 +59,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
