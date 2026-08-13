@@ -1,21 +1,54 @@
 package com.notesapp.offline.ui
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.notesapp.offline.data.ChecklistItem
 import com.notesapp.offline.data.Note
+import com.notesapp.offline.data.NoteColor
 import com.notesapp.offline.data.NotesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+enum class NoteFilter { ALL, PINNED, CHECKLISTS, DRAWINGS, ARCHIVED }
 
 class NotesViewModel(private val repo: NotesRepository) : ViewModel() {
 
-    private val _notes = MutableStateFlow<List<Note>>(emptyList())
-    val notes: StateFlow<List<Note>> = _notes.asStateFlow()
+    private val _allNotes = MutableStateFlow<List<Note>>(emptyList())
+
+    private val _filter = MutableStateFlow(NoteFilter.ALL)
+    val filter: StateFlow<NoteFilter> = _filter.asStateFlow()
+
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
 
     private val _loaded = MutableStateFlow(false)
     val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
+
+    val notes: StateFlow<List<Note>> = combine(_allNotes, _filter, _query) { all, filter, query ->
+        val base = when (filter) {
+            NoteFilter.ALL -> all.filterNot { it.archived }
+            NoteFilter.PINNED -> all.filterNot { it.archived }.filter { it.pinned }
+            NoteFilter.CHECKLISTS -> all.filterNot { it.archived }.filter { it.isChecklist }
+            NoteFilter.DRAWINGS -> all.filterNot { it.archived }.filter { it.isDrawing }
+            NoteFilter.ARCHIVED -> all.filter { it.archived }
+        }
+        val searched = if (query.isBlank()) {
+            base
+        } else {
+            base.filter { n ->
+                n.title.contains(query, ignoreCase = true) ||
+                    n.body.contains(query, ignoreCase = true) ||
+                    n.checklist.any { item -> item.text.contains(query, ignoreCase = true) }
+            }
+        }
+        searched.sortedWith(compareByDescending<Note> { it.pinned }.thenByDescending { it.updatedAt })
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
         refresh()
@@ -23,14 +56,15 @@ class NotesViewModel(private val repo: NotesRepository) : ViewModel() {
 
     private fun refresh() {
         viewModelScope.launch {
-            _notes.value = repo.loadAll().sortedWith(
-                compareByDescending<Note> { it.pinned }.thenByDescending { it.updatedAt }
-            )
+            _allNotes.value = repo.loadAll()
             _loaded.value = true
         }
     }
 
-    fun getNote(id: String): Note? = _notes.value.firstOrNull { it.id == id }
+    fun setFilter(f: NoteFilter) { _filter.value = f }
+    fun setQuery(q: String) { _query.value = q }
+
+    fun getNote(id: String): Note? = _allNotes.value.firstOrNull { it.id == id }
 
     fun save(note: Note) {
         viewModelScope.launch {
@@ -50,11 +84,30 @@ class NotesViewModel(private val repo: NotesRepository) : ViewModel() {
         val note = getNote(noteId) ?: return
         save(note.copy(pinned = !note.pinned))
     }
+
+    fun toggleArchive(noteId: String) {
+        val note = getNote(noteId) ?: return
+        save(note.copy(archived = !note.archived))
+    }
+
+    fun setColor(noteId: String, color: NoteColor) {
+        val note = getNote(noteId) ?: return
+        save(note.copy(color = color))
+    }
+
+    fun setChecklist(noteId: String, checklist: List<ChecklistItem>) {
+        val note = getNote(noteId) ?: return
+        save(note.copy(checklist = checklist))
+    }
+
+    fun saveDrawing(noteId: String, pngBase64: String) {
+        val note = getNote(noteId) ?: return
+        save(note.copy(drawingPngBase64 = pngBase64))
+    }
 }
 
-class NotesViewModelFactory(private val repo: NotesRepository) :
-    androidx.lifecycle.ViewModelProvider.Factory {
-    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+class NotesViewModelFactory(private val repo: NotesRepository) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
         @Suppress("UNCHECKED_CAST")
         return NotesViewModel(repo) as T
     }
