@@ -6,11 +6,8 @@ import java.util.UUID
 /**
  * Core note model.
  *
- * Kept intentionally simple for the foundation phase — title + plain body text.
- * Checklist items, rich text spans, and drawing canvas data will be added in
- * later phases as additional optional fields (this class is designed to grow
- * without breaking the on-disk JSON format, since every new field should have
- * a default value).
+ * Updated to include fields mapped from the web app's features (color, 
+ * archived status, drawing data, and magic effect ID).
  */
 @Serializable
 data class Note(
@@ -19,5 +16,9 @@ data class Note(
     val body: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val pinned: Boolean = false
+    val pinned: Boolean = false,
+    val color: String = "none",
+    val archived: Boolean = false,
+    val drawing: String? = null,
+    val magicEffectId: String? = null
 )
