@@ -7,13 +7,16 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Placeholder palette pulled from the web app's --accent-a / --accent-b /
-// --danger custom properties. The full "liquid glass" look (blurred glass
-// panels, blob backgrounds, custom radii) is intentionally deferred to the
-// UI-shell phase so this foundation stays easy to read and test.
-private val AccentA = Color(0xFF8B7CFF)
-private val AccentB = Color(0xFF4FE8C4)
-private val Danger = Color(0xFFFF6B6B)
+// Palette pulled directly from the web app's CSS custom properties
+// (--blob-violet / --blob-rose / --blob-teal / --blob-amber / --accent-a/b
+// / --danger) so the native version reads as the same product.
+val BlobViolet = Color(0xFF8B7CFF)
+val BlobRose = Color(0xFFFF7AA2)
+val BlobTeal = Color(0xFF4FE8C4)
+val BlobAmber = Color(0xFFFFC35A)
+val AccentA = BlobViolet
+val AccentB = BlobTeal
+val Danger = Color(0xFFFF6B6B)
 
 private val DarkColors = darkColorScheme(
     primary = AccentA,
