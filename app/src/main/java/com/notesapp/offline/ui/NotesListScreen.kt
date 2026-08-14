@@ -45,6 +45,7 @@ import com.notesapp.offline.data.Note
 import com.notesapp.offline.ui.theme.BlobBackground
 import com.notesapp.offline.ui.theme.GlassRadius
 import com.notesapp.offline.ui.theme.glassPanel
+import com.notesapp.offline.ui.theme.richTextPreview
 import com.notesapp.offline.ui.theme.toComposeColor
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -260,7 +261,7 @@ private fun NoteCard(
             }
         } else if (note.body.isNotBlank()) {
             Text(
-                text = note.body,
+                text = richTextPreview(note.body),
                 color = Color.White.copy(alpha = 0.56f),
                 fontSize = 13.sp,
                 maxLines = 5,
