@@ -1,11 +1,13 @@
 package com.notesapp.offline.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,19 +53,32 @@ fun applyBulletLine(value: TextFieldValue): TextFieldValue = prefixCurrentLine(v
 fun applyNumberedLine(value: TextFieldValue): TextFieldValue = prefixCurrentLine(value, "1. ")
 
 @Composable
-fun RichTextToolbar(onAction: ((TextFieldValue) -> TextFieldValue) -> Unit) {
+fun RichTextToolbar(
+    showFormatting: Boolean,
+    isChecklist: Boolean,
+    onAction: ((TextFieldValue) -> TextFieldValue) -> Unit,
+    onToggleChecklist: () -> Unit,
+    onSketch: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = Color.White
+) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .glassPanel(radius = GlassRadius.lg)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
+            .glassPanel(radius = GlassRadius.lg, tint = tint)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        ToolbarButton(label = "B", weight = FontWeight.Bold) { onAction(::applyBold) }
-        ToolbarButton(label = "I", italic = true) { onAction(::applyItalic) }
-        ToolbarButton(label = "U", underline = true) { onAction(::applyUnderline) }
-        ToolbarButton(label = "\u2022") { onAction(::applyBulletLine) }
-        ToolbarButton(label = "1.") { onAction(::applyNumberedLine) }
+        if (showFormatting) {
+            ToolbarButton(label = "B", weight = FontWeight.Bold, tint = tint) { onAction(::applyBold) }
+            ToolbarButton(label = "I", italic = true, tint = tint) { onAction(::applyItalic) }
+            ToolbarButton(label = "U", underline = true, tint = tint) { onAction(::applyUnderline) }
+            ToolbarButton(label = "\u2022", tint = tint) { onAction(::applyBulletLine) }
+            ToolbarButton(label = "1.", tint = tint) { onAction(::applyNumberedLine) }
+        }
+        ToolbarButton(label = if (isChecklist) "\u2611" else "\u2610+", tint = tint) { onToggleChecklist() }
+        ToolbarButton(label = "\u270E", tint = tint) { onSketch() }
     }
 }
 
@@ -73,6 +88,7 @@ private fun ToolbarButton(
     weight: FontWeight = FontWeight.Normal,
     italic: Boolean = false,
     underline: Boolean = false,
+    tint: Color = Color.White,
     onClick: () -> Unit
 ) {
     Box(
@@ -84,7 +100,7 @@ private fun ToolbarButton(
     ) {
         Text(
             text = label,
-            color = Color.White,
+            color = tint,
             fontSize = 15.sp,
             fontWeight = weight,
             fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
