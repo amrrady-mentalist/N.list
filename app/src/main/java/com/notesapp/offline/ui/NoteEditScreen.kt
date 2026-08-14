@@ -3,34 +3,30 @@ package com.notesapp.offline.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.imePadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -51,7 +46,6 @@ import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NoteColor
 import com.notesapp.offline.ui.theme.RichTextVisualTransformation
 import com.notesapp.offline.ui.theme.toComposeColor
-import java.util.UUID
 
 private fun decodeBase64ToBitmap(base64: String) = runCatching {
     val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
@@ -60,15 +54,17 @@ private fun decodeBase64ToBitmap(base64: String) = runCatching {
 
 /**
  * Handles create (noteId == null), plain-text edit, checklist edit, and the
- * drawing entry point, all in one screen — mirrors the original app's
- * single editor sheet that adapts to whatever the note contains.
- * Autosaves on every change, no explicit save button.
+ * drawing entry point, all in one screen. No top app bar — just a minimal
+ * icon row blended into the solid background. The formatting/checklist/
+ * sketch toolbar lives pinned to the very bottom and rides up with the
+ * keyboard via imePadding(), which animates automatically as the IME opens
+ * and closes (no manual spring logic needed).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NoteEditScreen(
     viewModel: NotesViewModel,
     noteId: String?,
+    isDarkTheme: Boolean,
     onBack: () -> Unit,
     onOpenDrawing: (String) -> Unit
 ) {
@@ -85,58 +81,58 @@ fun NoteEditScreen(
         viewModel.save(note)
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (existing == null) "New note" else "Edit note") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = {
-                        showColorPicker = !showColorPicker
-                    }) {
-                        Box(
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (current.color == NoteColor.NONE) Color.Gray.copy(alpha = 0.4f)
-                                    else current.color.toComposeColor()
-                                )
-                        )
-                    }
-                    if (existing != null) {
-                        Text(
-                            text = if (current.archived) "Unarchive" else "Archive",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            modifier = Modifier
-                                .padding(horizontal = 10.dp)
-                                .clickable {
-                                    viewModel.toggleArchive(current.id)
-                                    onBack()
-                                }
-                        )
-                        IconButton(onClick = {
-                            viewModel.delete(current.id)
-                            onBack()
-                        }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
-                        }
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    val bgColor = if (isDarkTheme) Color.Black else Color.White
+    val fgColor = if (isDarkTheme) Color.White else Color.Black
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .statusBarsPadding()
                 .padding(16.dp)
         ) {
+            // Minimal top row — no AppBar chrome, just icons on the solid background.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = fgColor)
+                }
+                Box(modifier = Modifier.weight(1f))
+                IconButton(onClick = { showColorPicker = !showColorPicker }) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (current.color == NoteColor.NONE) Color.Gray.copy(alpha = 0.4f)
+                                else current.color.toComposeColor()
+                            )
+                    )
+                }
+                if (existing != null) {
+                    Text(
+                        text = if (current.archived) "Unarchive" else "Archive",
+                        color = fgColor,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .padding(horizontal = 10.dp)
+                            .clickable {
+                                viewModel.toggleArchive(current.id)
+                                onBack()
+                            }
+                    )
+                    IconButton(onClick = {
+                        viewModel.delete(current.id)
+                        onBack()
+                    }) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = fgColor)
+                    }
+                }
+            }
+
             if (showColorPicker) {
                 ColorPickerRow(
                     selected = current.color,
@@ -152,9 +148,8 @@ fun NoteEditScreen(
                 onValueChange = { persist(current.copy(title = it)) },
                 placeholder = { Text("Title") },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions.Default,
                 colors = TextFieldDefaults.colors(),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
             )
 
             // Drawing thumbnail slot, if this note has one.
@@ -173,67 +168,70 @@ fun NoteEditScreen(
                 }
             }
 
-            Row(
-                modifier = Modifier.padding(top = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = if (current.isChecklist) "+ Checklist item" else "+ Checklist",
-                    modifier = Modifier.clickable {
-                        if (current.checklist.isEmpty()) {
-                            persist(current.copy(checklist = listOf(ChecklistItem())))
-                        } else {
-                            persist(current.copy(checklist = current.checklist + ChecklistItem()))
-                        }
-                    }
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.clickable {
-                        // Persist unconditionally (bypassing persist()'s empty-note
-                        // guard) so a stable note id exists for the drawing screen
-                        // to save back into, even for a brand-new blank note.
-                        viewModel.save(current)
-                        onOpenDrawing(current.id)
-                    }
-                ) {
-                    Text("✎", fontSize = 16.sp)
-                    Text("Sketch", modifier = Modifier.padding(start = 4.dp))
+            Box(modifier = Modifier.weight(1f)) {
+                if (current.isChecklist) {
+                    ChecklistEditor(
+                        items = current.checklist,
+                        fgColor = fgColor,
+                        onChange = { persist(current.copy(checklist = it)) }
+                    )
+                } else {
+                    TextField(
+                        value = bodyField,
+                        onValueChange = { newValue ->
+                            bodyField = newValue
+                            persist(current.copy(body = newValue.text))
+                        },
+                        placeholder = { Text("Start writing...") },
+                        visualTransformation = RichTextVisualTransformation(),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedTextColor = fgColor,
+                            unfocusedTextColor = fgColor
+                        ),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = 8.dp)
+                    )
                 }
             }
-
-            if (current.isChecklist) {
-                ChecklistEditor(
-                    items = current.checklist,
-                    onChange = { persist(current.copy(checklist = it)) }
-                )
-            } else {
-                RichTextToolbar(onAction = { transform ->
-                    val updated = transform(bodyField)
-                    bodyField = updated
-                    persist(current.copy(body = updated.text))
-                })
-                TextField(
-                    value = bodyField,
-                    onValueChange = { newValue ->
-                        bodyField = newValue
-                        persist(current.copy(body = newValue.text))
-                    },
-                    placeholder = { Text("Start writing...") },
-                    visualTransformation = RichTextVisualTransformation(),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(top = 8.dp)
-                )
-            }
         }
+
+        // Pinned to the very bottom, rides up above the IME when it opens
+        // and eases back down when it closes.
+        RichTextToolbar(
+            showFormatting = !current.isChecklist,
+            isChecklist = current.isChecklist,
+            onAction = { transform ->
+                val updated = transform(bodyField)
+                bodyField = updated
+                persist(current.copy(body = updated.text))
+            },
+            onToggleChecklist = {
+                if (current.isChecklist) {
+                    persist(current.copy(checklist = emptyList()))
+                } else if (current.checklist.isEmpty()) {
+                    persist(current.copy(checklist = listOf(ChecklistItem())))
+                } else {
+                    persist(current.copy(checklist = current.checklist + ChecklistItem()))
+                }
+            },
+            onSketch = {
+                // Persist unconditionally (bypassing persist()'s empty-note
+                // guard) so a stable note id exists for the drawing screen
+                // to save back into, even for a brand-new blank note.
+                viewModel.save(current)
+                onOpenDrawing(current.id)
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .imePadding()
+                .padding(12.dp),
+            tint = fgColor
+        )
     }
 }
 
@@ -242,7 +240,7 @@ private fun ColorPickerRow(selected: NoteColor, onSelect: (NoteColor) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 12.dp),
+            .padding(top = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         NoteColor.entries.forEach { c ->
@@ -258,8 +256,8 @@ private fun ColorPickerRow(selected: NoteColor, onSelect: (NoteColor) -> Unit) {
 }
 
 @Composable
-private fun ChecklistEditor(items: List<ChecklistItem>, onChange: (List<ChecklistItem>) -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 4.dp)) {
+private fun ChecklistEditor(items: List<ChecklistItem>, fgColor: Color, onChange: (List<ChecklistItem>) -> Unit) {
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 4.dp, bottom = 64.dp)) {
         items(items, key = { it.id }) { item ->
             Row(
                 modifier = Modifier
@@ -284,7 +282,8 @@ private fun ChecklistEditor(items: List<ChecklistItem>, onChange: (List<Checklis
                     placeholder = { Text("List item") },
                     singleLine = true,
                     textStyle = androidx.compose.ui.text.TextStyle(
-                        textDecoration = if (item.done) TextDecoration.LineThrough else TextDecoration.None
+                        textDecoration = if (item.done) TextDecoration.LineThrough else TextDecoration.None,
+                        color = fgColor
                     ),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
@@ -297,7 +296,7 @@ private fun ChecklistEditor(items: List<ChecklistItem>, onChange: (List<Checklis
                         .padding(start = 10.dp)
                 )
                 IconButton(onClick = { onChange(items.filterNot { it.id == item.id }) }) {
-                    Text("×", fontSize = 20.sp)
+                    Text("×", fontSize = 20.sp, color = fgColor)
                 }
             }
         }
@@ -309,8 +308,8 @@ private fun ChecklistEditor(items: List<ChecklistItem>, onChange: (List<Checklis
                     .clickable { onChange(items + ChecklistItem()) },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("Add item", modifier = Modifier.padding(start = 8.dp))
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = fgColor)
+                Text("Add item", color = fgColor, modifier = Modifier.padding(start = 8.dp))
             }
         }
     }
