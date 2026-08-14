@@ -6,8 +6,10 @@ import android.graphics.Paint as AndroidPaint
 import android.util.Base64
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -53,7 +56,22 @@ import java.io.ByteArrayOutputStream
 
 private data class DrawnStroke(val points: List<Offset>, val color: Color, val widthPx: Float)
 
-private val palette = listOf(Color.White, BlobViolet, BlobRose, BlobTeal, BlobAmber, Color(0xFFFF6B6B))
+private val palette = listOf(
+    Color.White,
+    Color.Black,
+    BlobViolet,
+    BlobRose,
+    BlobTeal,
+    BlobAmber,
+    Color(0xFFFF6B6B), // red
+    Color(0xFFFF9F45), // orange
+    Color(0xFFFFE45E), // yellow
+    Color(0xFF4ADE80), // green
+    Color(0xFF38BDF8), // sky blue
+    Color(0xFF6366F1), // indigo
+    Color(0xFFE879F9), // magenta
+    Color(0xFFA3A3A3)  // gray
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,6 +130,13 @@ fun DrawingScreen(
                         detectDragGestures(
                             onDragStart = { offset ->
                                 current = mutableListOf(offset)
+                                // Push a placeholder stroke immediately so the first
+                                // onDrag call below has something of its own to
+                                // replace via dropLast(1) — without this, that first
+                                // dropLast(1) was removing the PREVIOUS finished
+                                // stroke instead, which is why drawing a second line
+                                // used to erase the first one.
+                                strokes.value = strokes.value + DrawnStroke(current.toList(), currentColor, brushSize)
                             },
                             onDrag = { change, _ ->
                                 current.add(change.position)
@@ -149,10 +174,12 @@ fun DrawingScreen(
             }
 
             // Bottom toolbar: color swatches + brush size, matching the
-            // original app's drawing sheet.
+            // original app's drawing sheet. Scrollable since the palette
+            // is wider than most phone screens.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -162,6 +189,10 @@ fun DrawingScreen(
                             .size(32.dp)
                             .clip(CircleShape)
                             .background(c)
+                            .then(
+                                if (c == Color.Black) Modifier.border(1.dp, Color.White.copy(alpha = 0.3f), CircleShape)
+                                else Modifier
+                            )
                             .clickable { currentColor = c }
                     )
                 }
