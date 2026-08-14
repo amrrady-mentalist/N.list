@@ -44,3 +44,11 @@ fun NotesNativeTheme(
         content = content
     )
 }
+
+/** Resolves a stored ThemeMode preference against the system setting when SYSTEM. */
+@Composable
+fun resolveDarkTheme(mode: com.notesapp.offline.data.ThemeMode): Boolean = when (mode) {
+    com.notesapp.offline.data.ThemeMode.DARK -> true
+    com.notesapp.offline.data.ThemeMode.LIGHT -> false
+    com.notesapp.offline.data.ThemeMode.SYSTEM -> isSystemInDarkTheme()
+}
