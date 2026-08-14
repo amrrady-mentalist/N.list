@@ -14,16 +14,16 @@ import androidx.compose.ui.text.withStyle
 
 /**
  * Markdown-lite rich text: **bold**, _italic_, ~underline~ — deliberately
- * distinct delimiter characters (rather than classic *italic*/**bold**) so
- * a single-pass regex can parse them with no ambiguity between bold and
- * italic. List lines are plain text prefixed with "- " (bullet) or "1. "
- * (numbered) — no auto-renumbering, matching a lot of lightweight note
- * apps' actual behavior.
+ * distinct delimiter characters (rather than classic single/double asterisk
+ * markdown) so a single-pass regex can parse them with no ambiguity between
+ * bold and italic. List lines are plain text prefixed with "- " (bullet) or
+ * "1. " (numbered) — no auto-renumbering, matching a lot of lightweight
+ * note apps' actual behavior.
  *
  * This is intentionally NOT a WYSIWYG editor (Compose's TextField doesn't
  * support per-character rich formatting without a lot of custom editing
  * machinery). The raw markers stay visible and editable in the note body;
- * what changes is that they're *styled* live via VisualTransformation, and
+ * what changes is that they're styled live via VisualTransformation, and
  * fully stripped for the clean read-only preview on list cards.
  */
 private val richTextRegex = Regex("""\*\*(.+?)\*\*|_(.+?)_|~(.+?)~""")
