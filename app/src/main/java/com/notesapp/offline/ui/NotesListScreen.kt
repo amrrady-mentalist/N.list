@@ -3,6 +3,7 @@ package com.notesapp.offline.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
@@ -29,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -37,12 +40,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notesapp.offline.data.Note
-import com.notesapp.offline.ui.theme.BlobBackground
 import com.notesapp.offline.ui.theme.GlassRadius
 import com.notesapp.offline.ui.theme.glassPanel
 import com.notesapp.offline.ui.theme.richTextPreview
@@ -52,18 +55,36 @@ import com.notesapp.offline.ui.theme.toComposeColor
 @Composable
 fun NotesListScreen(
     viewModel: NotesViewModel,
+    isDarkTheme: Boolean,
     onOpenNote: (String?) -> Unit,
-    onOpenMagicSettings: () -> Unit
+    onOpenMagicSettings: () -> Unit,
+    onToggleTheme: () -> Unit,
+    onEnterLockFlow: () -> Unit
 ) {
     val notes by viewModel.notes.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val query by viewModel.query.collectAsState()
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        BlobBackground(modifier = Modifier.fillMaxSize())
+    val bgColor = if (isDarkTheme) Color.Black else Color.White
+    val fgColor = if (isDarkTheme) Color.White else Color.Black
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Header
+    // Hidden settings entry: typing "magic" in the search bar opens Magic
+    // Settings and clears the query, instead of a visible gear icon.
+    LaunchedEffect(query) {
+        if (query.trim().equals("magic", ignoreCase = true)) {
+            viewModel.setQuery("")
+            onOpenMagicSettings()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor)
+    ) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+            // Header — double-tap "Notes" to enter the lock/blackout flow,
+            // the performer's way in without closing and reopening the app.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -73,12 +94,15 @@ fun NotesListScreen(
             ) {
                 Text(
                     text = "Notes",
-                    color = Color.White,
+                    color = fgColor,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 34.sp
+                    fontSize = 34.sp,
+                    modifier = Modifier.pointerInput(Unit) {
+                        detectTapGestures(onDoubleTap = { onEnterLockFlow() })
+                    }
                 )
-                IconButton(onClick = onOpenMagicSettings) {
-                    Text("⚙", color = Color.White, fontSize = 20.sp)
+                IconButton(onClick = onToggleTheme) {
+                    Text(if (isDarkTheme) "\u263D" else "\u2600", color = fgColor, fontSize = 20.sp)
                 }
             }
 
@@ -87,20 +111,20 @@ fun NotesListScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 18.dp)
-                    .glassPanel(radius = GlassRadius.md)
+                    .glassPanel(radius = GlassRadius.md, tint = fgColor)
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
                     if (query.isEmpty()) {
-                        Text("Search notes", color = Color.White.copy(alpha = 0.34f), fontSize = 15.sp)
+                        Text("Search notes", color = fgColor.copy(alpha = 0.34f), fontSize = 15.sp)
                     }
                     BasicTextField(
                         value = query,
                         onValueChange = viewModel::setQuery,
                         singleLine = true,
-                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = fgColor, fontSize = 15.sp),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(fgColor),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -116,6 +140,7 @@ fun NotesListScreen(
                     FilterChip(
                         label = f.name.lowercase().replaceFirstChar { it.uppercase() },
                         active = filter == f,
+                        fgColor = fgColor,
                         onClick = { viewModel.setFilter(f) }
                     )
                 }
@@ -123,7 +148,7 @@ fun NotesListScreen(
 
             if (notes.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No notes yet — tap + to create one", color = Color.White.copy(alpha = 0.5f))
+                    Text("No notes yet — tap + to create one", color = fgColor.copy(alpha = 0.5f))
                 }
             } else {
                 LazyVerticalStaggeredGrid(
@@ -136,6 +161,7 @@ fun NotesListScreen(
                     items(notes, key = { it.id }) { note ->
                         NoteCard(
                             note = note,
+                            fgColor = fgColor,
                             onClick = { onOpenNote(note.id) },
                             onTogglePin = { viewModel.togglePin(note.id) },
                             onDelete = { viewModel.delete(note.id) }
@@ -161,17 +187,17 @@ fun NotesListScreen(
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun FilterChip(label: String, active: Boolean, onClick: () -> Unit) {
+private fun FilterChip(label: String, active: Boolean, fgColor: Color, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(100.dp))
-            .background(if (active) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+            .background(if (active) fgColor.copy(alpha = 0.12f) else Color.Transparent)
             .combinedClickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Text(
             text = label,
-            color = if (active) Color.White else Color.White.copy(alpha = 0.56f),
+            color = if (active) fgColor else fgColor.copy(alpha = 0.56f),
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold
         )
@@ -182,6 +208,7 @@ private fun FilterChip(label: String, active: Boolean, onClick: () -> Unit) {
 @Composable
 private fun NoteCard(
     note: Note,
+    fgColor: Color,
     onClick: () -> Unit,
     onTogglePin: () -> Unit,
     onDelete: () -> Unit
@@ -189,7 +216,7 @@ private fun NoteCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassPanel(radius = GlassRadius.md)
+            .glassPanel(radius = GlassRadius.md, tint = fgColor)
             .combinedClickable(onClick = onClick, onLongClick = onDelete)
             .padding(14.dp)
     ) {
@@ -219,7 +246,7 @@ private fun NoteCard(
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = note.title.ifBlank { "Untitled" },
-                color = Color.White,
+                color = fgColor,
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
                 maxLines = 1,
@@ -230,7 +257,7 @@ private fun NoteCard(
                 Icon(
                     Icons.Filled.Star,
                     contentDescription = if (note.pinned) "Unpin" else "Pin",
-                    tint = if (note.pinned) Color.White else Color.White.copy(alpha = 0.25f),
+                    tint = if (note.pinned) fgColor else fgColor.copy(alpha = 0.25f),
                     modifier = Modifier.size(16.dp)
                 )
             }
@@ -245,12 +272,12 @@ private fun NoteCard(
                                 .size(13.dp)
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(
-                                    if (item.done) Color(0xFF4FE8C4) else Color.White.copy(alpha = 0.15f)
+                                    if (item.done) Color(0xFF4FE8C4) else fgColor.copy(alpha = 0.15f)
                                 )
                         )
                         Text(
                             text = item.text,
-                            color = Color.White.copy(alpha = if (item.done) 0.4f else 0.75f),
+                            color = fgColor.copy(alpha = if (item.done) 0.4f else 0.75f),
                             fontSize = 13.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -262,7 +289,7 @@ private fun NoteCard(
         } else if (note.body.isNotBlank()) {
             Text(
                 text = richTextPreview(note.body),
-                color = Color.White.copy(alpha = 0.56f),
+                color = fgColor.copy(alpha = 0.56f),
                 fontSize = 13.sp,
                 maxLines = 5,
                 overflow = TextOverflow.Ellipsis,
