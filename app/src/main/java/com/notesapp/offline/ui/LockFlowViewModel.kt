@@ -42,6 +42,13 @@ class LockFlowViewModel(
         _screen.value = LockScreenState.BLACKOUT
     }
 
+    /** Re-arms the flow for another performance without restarting the app. */
+    fun reset() {
+        _pinDigits.value = ""
+        _screen.value = LockScreenState.BLACKOUT
+        _unlocked.value = false
+    }
+
     fun onPinKey(key: String) {
         when (key) {
             "delete" -> _pinDigits.value = _pinDigits.value.dropLast(1)
