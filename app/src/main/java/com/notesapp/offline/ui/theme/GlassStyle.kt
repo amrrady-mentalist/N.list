@@ -34,13 +34,14 @@ object GlassRadius {
  */
 fun Modifier.glassPanel(
     radius: Dp = GlassRadius.md,
-    fill: Color = Color.White.copy(alpha = 0.07f),
-    borderColor: Color = Color.White.copy(alpha = 0.20f)
+    tint: Color = Color.White,
+    fill: Color = tint.copy(alpha = 0.07f),
+    borderColor: Color = tint.copy(alpha = 0.20f)
 ): Modifier = this
     .clip(RoundedCornerShape(radius))
     .background(
         Brush.linearGradient(
-            colors = listOf(Color.White.copy(alpha = 0.16f), Color.Transparent),
+            colors = listOf(tint.copy(alpha = 0.16f), Color.Transparent),
         )
     )
     .background(fill)
