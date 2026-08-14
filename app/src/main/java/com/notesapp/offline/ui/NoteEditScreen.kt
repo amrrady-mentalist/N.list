@@ -42,12 +42,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notesapp.offline.data.ChecklistItem
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NoteColor
+import com.notesapp.offline.ui.theme.RichTextVisualTransformation
 import com.notesapp.offline.ui.theme.toComposeColor
 import java.util.UUID
 
@@ -73,6 +75,7 @@ fun NoteEditScreen(
     val existing = remember(noteId) { noteId?.let { viewModel.getNote(it) } }
     var current by remember(noteId) { mutableStateOf(existing ?: Note()) }
     var showColorPicker by remember { mutableStateOf(false) }
+    var bodyField by remember(noteId) { mutableStateOf(TextFieldValue(existing?.body ?: "")) }
 
     fun persist(note: Note) {
         current = note
@@ -205,10 +208,19 @@ fun NoteEditScreen(
                     onChange = { persist(current.copy(checklist = it)) }
                 )
             } else {
+                RichTextToolbar(onAction = { transform ->
+                    val updated = transform(bodyField)
+                    bodyField = updated
+                    persist(current.copy(body = updated.text))
+                })
                 TextField(
-                    value = current.body,
-                    onValueChange = { persist(current.copy(body = it)) },
+                    value = bodyField,
+                    onValueChange = { newValue ->
+                        bodyField = newValue
+                        persist(current.copy(body = newValue.text))
+                    },
                     placeholder = { Text("Start writing...") },
+                    visualTransformation = RichTextVisualTransformation(),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent,
@@ -218,7 +230,7 @@ fun NoteEditScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(top = 12.dp)
+                        .padding(top = 8.dp)
                 )
             }
         }
