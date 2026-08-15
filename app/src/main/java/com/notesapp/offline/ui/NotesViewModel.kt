@@ -106,7 +106,7 @@ class NotesViewModel(private val repo: NotesRepository) : ViewModel() {
         save(note.copy(checklist = checklist))
     }
 
-    fun saveDrawing(noteId: String, pngBase64: String) {
+    fun saveDrawing(noteId: String, pngBase64: String?) {
         val note = getNote(noteId) ?: return
         save(note.copy(drawingPngBase64 = pngBase64))
     }
