@@ -67,17 +67,23 @@ class NotesViewModel(private val repo: NotesRepository) : ViewModel() {
     fun getNote(id: String): Note? = _allNotes.value.firstOrNull { it.id == id }
 
     fun save(note: Note) {
-        viewModelScope.launch {
-            repo.upsert(note.copy(updatedAt = System.currentTimeMillis()))
-            refresh()
+        // Update in-memory state synchronously first (so getNote() and the
+        // list reflect the change immediately, even if the caller navigates
+        // away this same frame), then persist to disk in the background.
+        val updated = note.copy(updatedAt = System.currentTimeMillis())
+        val current = _allNotes.value
+        val idx = current.indexOfFirst { it.id == updated.id }
+        _allNotes.value = if (idx >= 0) {
+            current.toMutableList().also { it[idx] = updated }
+        } else {
+            listOf(updated) + current
         }
+        viewModelScope.launch { repo.upsert(updated) }
     }
 
     fun delete(noteId: String) {
-        viewModelScope.launch {
-            repo.delete(noteId)
-            refresh()
-        }
+        _allNotes.value = _allNotes.value.filterNot { it.id == noteId }
+        viewModelScope.launch { repo.delete(noteId) }
     }
 
     fun togglePin(noteId: String) {
