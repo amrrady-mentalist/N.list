@@ -83,7 +83,7 @@ private fun decodeBitmap(base64: String) = runCatching {
 fun DrawingScreen(
     initialPngBase64: String?,
     isDarkTheme: Boolean,
-    onSave: (String) -> Unit,
+    onSave: (String?) -> Unit,
     onBack: () -> Unit
 ) {
     val bgColor = if (isDarkTheme) Color.Black else Color.White
@@ -100,8 +100,17 @@ fun DrawingScreen(
     var canvasSizePx by remember { mutableStateOf(Offset(1f, 1f)) }
 
     // Back arrow behaves exactly like the checkmark — always save on exit,
-    // no separate "discard" path.
+    // no separate "discard" path. If there's nothing to show (no strokes,
+    // and either no background or it was explicitly cleared via the trash
+    // button) this reports null instead of rasterizing a blank canvas, so
+    // the note goes back to having no drawing at all rather than a solid
+    // blank thumbnail that still displays a preview.
     fun saveAndExit() {
+        val hasContent = strokes.value.isNotEmpty() || (!backgroundCleared && backgroundBitmap != null)
+        if (!hasContent) {
+            onSave(null)
+            return
+        }
         val bitmap = rasterize(
             strokes = strokes.value,
             size = canvasSizePx,
@@ -396,15 +405,22 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCurvedArrow(
     drawPath(arrowPath, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
 }
 
+/**
+ * The previous sweep (280° out of 360°) left only an 80° gap, so the arc
+ * nearly closed into a full loop and read as a blob instead of an arrow.
+ * A ~200° sweep leaves a clear, open hook shape — recognizable as
+ * "undo"/"redo" at a glance, matching the visual weight of the other
+ * hand-drawn icons in this toolbar.
+ */
 @Composable
 private fun UndoIcon(tint: Color) {
-    Canvas(modifier = Modifier.size(20.dp)) {
+    Canvas(modifier = Modifier.size(22.dp)) {
         drawCurvedArrow(
             tint = tint,
-            center = Offset(size.width * 0.55f, size.height * 0.55f),
-            radius = size.minDimension * 0.32f,
-            startAngleDeg = 40f,
-            sweepDeg = -280f,
+            center = Offset(size.width * 0.5f, size.height * 0.5f),
+            radius = size.minDimension * 0.34f,
+            startAngleDeg = -10f,
+            sweepDeg = -200f,
             strokeWidth = 1.8.dp.toPx()
         )
     }
@@ -412,13 +428,13 @@ private fun UndoIcon(tint: Color) {
 
 @Composable
 private fun RedoIcon(tint: Color) {
-    Canvas(modifier = Modifier.size(20.dp)) {
+    Canvas(modifier = Modifier.size(22.dp)) {
         drawCurvedArrow(
             tint = tint,
-            center = Offset(size.width * 0.45f, size.height * 0.55f),
-            radius = size.minDimension * 0.32f,
-            startAngleDeg = 140f,
-            sweepDeg = 280f,
+            center = Offset(size.width * 0.5f, size.height * 0.5f),
+            radius = size.minDimension * 0.34f,
+            startAngleDeg = 190f,
+            sweepDeg = 200f,
             strokeWidth = 1.8.dp.toPx()
         )
     }
