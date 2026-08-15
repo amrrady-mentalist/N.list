@@ -1,5 +1,6 @@
 package com.notesapp.offline.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -25,6 +26,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,10 +37,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -46,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notesapp.offline.data.Note
+import com.notesapp.offline.data.NoteColor
 import com.notesapp.offline.ui.theme.GlassRadius
 import com.notesapp.offline.ui.theme.glassPanel
 import com.notesapp.offline.ui.theme.richTextPreview
@@ -102,7 +109,7 @@ fun NotesListScreen(
                     }
                 )
                 IconButton(onClick = onToggleTheme) {
-                    Text(if (isDarkTheme) "\u263D" else "\u2600", color = fgColor, fontSize = 20.sp)
+                    ThemeToggleIcon(isDarkTheme = isDarkTheme, fgColor = fgColor, bgColor = bgColor)
                 }
             }
 
@@ -164,6 +171,8 @@ fun NotesListScreen(
                             fgColor = fgColor,
                             onClick = { onOpenNote(note.id) },
                             onTogglePin = { viewModel.togglePin(note.id) },
+                            onToggleArchive = { viewModel.toggleArchive(note.id) },
+                            onSetColor = { viewModel.setColor(note.id, it) },
                             onDelete = { viewModel.delete(note.id) }
                         )
                     }
@@ -181,6 +190,41 @@ fun NotesListScreen(
                 .background(MaterialTheme.colorScheme.primary)
         ) {
             Icon(Icons.Filled.Add, contentDescription = "New note", tint = Color.White)
+        }
+    }
+}
+
+/** Hand-drawn sun/moon so it reads as a real icon rather than an emoji glyph. */
+@Composable
+private fun ThemeToggleIcon(isDarkTheme: Boolean, fgColor: Color, bgColor: Color) {
+    Canvas(modifier = Modifier.size(22.dp)) {
+        val radius = size.minDimension / 2.8f
+        val center = Offset(size.width / 2f, size.height / 2f)
+        if (isDarkTheme) {
+            // Sun: circle + 8 short rays
+            drawCircle(color = fgColor, radius = radius, center = center)
+            val rayStart = radius * 1.35f
+            val rayEnd = radius * 1.9f
+            for (i in 0 until 8) {
+                val angle = (i * 45f) * (Math.PI / 180f)
+                val dx = kotlin.math.cos(angle).toFloat()
+                val dy = kotlin.math.sin(angle).toFloat()
+                drawLine(
+                    color = fgColor,
+                    start = Offset(center.x + dx * rayStart, center.y + dy * rayStart),
+                    end = Offset(center.x + dx * rayEnd, center.y + dy * rayEnd),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
+        } else {
+            // Moon: full circle, then an offset circle in the background
+            // color "bites" out a crescent.
+            drawCircle(color = fgColor, radius = radius, center = center)
+            drawCircle(
+                color = bgColor,
+                radius = radius * 0.85f,
+                center = Offset(center.x + radius * 0.55f, center.y - radius * 0.35f)
+            )
         }
     }
 }
@@ -204,96 +248,131 @@ private fun FilterChip(label: String, active: Boolean, fgColor: Color, onClick: 
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun NoteCard(
     note: Note,
     fgColor: Color,
     onClick: () -> Unit,
     onTogglePin: () -> Unit,
+    onToggleArchive: () -> Unit,
+    onSetColor: (NoteColor) -> Unit,
     onDelete: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassPanel(radius = GlassRadius.md, tint = fgColor)
-            .combinedClickable(onClick = onClick, onLongClick = onDelete)
-            .padding(14.dp)
-    ) {
-        if (note.color != com.notesapp.offline.data.NoteColor.NONE) {
-            Box(
-                modifier = Modifier
-                    .size(9.dp)
-                    .clip(CircleShape)
-                    .background(note.color.toComposeColor())
-            )
-        }
+    var showMenu by remember { mutableStateOf(false) }
 
-        note.drawingPngBase64?.let { b64 ->
-            val bmp = remember(b64) { decodeThumb(b64) }
-            if (bmp != null) {
-                Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = null,
+    Box {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassPanel(radius = GlassRadius.md, tint = fgColor)
+                .combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
+                .padding(14.dp)
+        ) {
+            if (note.color != NoteColor.NONE) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp, bottom = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(note.color.toComposeColor())
                 )
             }
-        }
 
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = note.title.ifBlank { "Untitled" },
-                color = fgColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = onTogglePin, modifier = Modifier.size(28.dp)) {
-                Icon(
-                    Icons.Filled.Star,
-                    contentDescription = if (note.pinned) "Unpin" else "Pin",
-                    tint = if (note.pinned) fgColor else fgColor.copy(alpha = 0.25f),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-
-        if (note.isChecklist) {
-            Column(modifier = Modifier.padding(top = 4.dp)) {
-                note.checklist.take(5).forEach { item ->
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .size(13.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(
-                                    if (item.done) Color(0xFF4FE8C4) else fgColor.copy(alpha = 0.15f)
-                                )
-                        )
-                        Text(
-                            text = item.text,
-                            color = fgColor.copy(alpha = if (item.done) 0.4f else 0.75f),
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(start = 6.dp)
-                        )
-                    }
+            note.drawingPngBase64?.let { b64 ->
+                val bmp = remember(b64) { decodeThumb(b64) }
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp, bottom = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
                 }
             }
-        } else if (note.body.isNotBlank()) {
-            Text(
-                text = richTextPreview(note.body),
-                color = fgColor.copy(alpha = 0.56f),
-                fontSize = 13.sp,
-                maxLines = 5,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp)
+
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = note.title.ifBlank { "Untitled" },
+                    color = fgColor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onTogglePin, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        Icons.Filled.Star,
+                        contentDescription = if (note.pinned) "Unpin" else "Pin",
+                        tint = if (note.pinned) fgColor else fgColor.copy(alpha = 0.25f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            if (note.isChecklist) {
+                Column(modifier = Modifier.padding(top = 4.dp)) {
+                    note.checklist.take(5).forEach { item ->
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(13.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(
+                                        if (item.done) Color(0xFF4FE8C4) else fgColor.copy(alpha = 0.15f)
+                                    )
+                            )
+                            Text(
+                                text = item.text,
+                                color = fgColor.copy(alpha = if (item.done) 0.4f else 0.75f),
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = 6.dp)
+                            )
+                        }
+                    }
+                }
+            } else if (note.body.isNotBlank()) {
+                Text(
+                    text = richTextPreview(note.body, note.styleRuns),
+                    color = fgColor.copy(alpha = 0.56f),
+                    fontSize = 13.sp,
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+            DropdownMenuItem(
+                text = { Text(if (note.pinned) "Unpin" else "Pin") },
+                onClick = { onTogglePin(); showMenu = false }
+            )
+            DropdownMenuItem(
+                text = { Text(if (note.archived) "Unarchive" else "Archive") },
+                onClick = { onToggleArchive(); showMenu = false }
+            )
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                NoteColor.entries.forEach { c ->
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(if (c == NoteColor.NONE) Color.Gray.copy(alpha = 0.3f) else c.toComposeColor())
+                            .combinedClickable(onClick = { onSetColor(c); showMenu = false })
+                    )
+                }
+            }
+            DropdownMenuItem(
+                text = { Text("Delete") },
+                onClick = { onDelete(); showMenu = false }
             )
         }
     }
