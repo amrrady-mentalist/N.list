@@ -3,6 +3,8 @@ package com.notesapp.offline.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -26,8 +28,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,8 +51,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NoteColor
+import com.notesapp.offline.ui.theme.Danger
 import com.notesapp.offline.ui.theme.GlassRadius
 import com.notesapp.offline.ui.theme.glassPanel
 import com.notesapp.offline.ui.theme.richTextPreview
@@ -319,7 +322,7 @@ private fun NoteCard(
                             Box(
                                 modifier = Modifier
                                     .size(13.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(CircleShape)
                                     .background(
                                         if (item.done) Color(0xFF4FE8C4) else fgColor.copy(alpha = 0.15f)
                                     )
@@ -347,35 +350,61 @@ private fun NoteCard(
             }
         }
 
-        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-            DropdownMenuItem(
-                text = { Text(if (note.pinned) "Unpin" else "Pin") },
-                onClick = { onTogglePin(); showMenu = false }
-            )
-            DropdownMenuItem(
-                text = { Text(if (note.archived) "Unarchive" else "Archive") },
-                onClick = { onToggleArchive(); showMenu = false }
-            )
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+        if (showMenu) {
+            Popup(
+                alignment = Alignment.Center,
+                onDismissRequest = { showMenu = false },
+                properties = PopupProperties(focusable = true, dismissOnBackPress = true, dismissOnClickOutside = true)
             ) {
-                NoteColor.entries.forEach { c ->
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(if (c == NoteColor.NONE) Color.Gray.copy(alpha = 0.3f) else c.toComposeColor())
-                            .combinedClickable(onClick = { onSetColor(c); showMenu = false })
-                    )
+                Column(
+                    modifier = Modifier
+                        .glassPanel(radius = GlassRadius.md, tint = fgColor)
+                        .padding(vertical = 6.dp)
+                ) {
+                    GlassMenuItem(if (note.pinned) "Unpin" else "Pin", fgColor) {
+                        onTogglePin(); showMenu = false
+                    }
+                    GlassMenuItem(if (note.archived) "Unarchive" else "Archive", fgColor) {
+                        onToggleArchive(); showMenu = false
+                    }
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        NoteColor.entries.forEach { c ->
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(if (c == NoteColor.NONE) fgColor.copy(alpha = 0.2f) else c.toComposeColor())
+                                    .then(
+                                        if (c == note.color) Modifier.border(2.dp, fgColor, CircleShape) else Modifier
+                                    )
+                                    .clickable { onSetColor(c); showMenu = false }
+                            )
+                        }
+                    }
+                    GlassMenuItem("Delete", Danger) {
+                        onDelete(); showMenu = false
+                    }
                 }
             }
-            DropdownMenuItem(
-                text = { Text("Delete") },
-                onClick = { onDelete(); showMenu = false }
-            )
         }
     }
+}
+
+@Composable
+private fun GlassMenuItem(label: String, color: Color, onClick: () -> Unit) {
+    Text(
+        text = label,
+        color = color,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 12.dp)
+    )
 }
 
 private fun decodeThumb(base64: String) = runCatching {
