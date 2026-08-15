@@ -94,4 +94,7 @@ fun com.notesapp.offline.data.NoteColor.toComposeColor(): Color = when (this) {
     com.notesapp.offline.data.NoteColor.ROSE -> BlobRose
     com.notesapp.offline.data.NoteColor.TEAL -> BlobTeal
     com.notesapp.offline.data.NoteColor.AMBER -> BlobAmber
+    com.notesapp.offline.data.NoteColor.SKY -> Color(0xFF38BDF8)
+    com.notesapp.offline.data.NoteColor.LIME -> Color(0xFF4ADE80)
+    com.notesapp.offline.data.NoteColor.CORAL -> Color(0xFFFF6B6B)
 }
