@@ -20,6 +20,7 @@ data class Note(
     val id: String = UUID.randomUUID().toString(),
     val title: String = "",
     val body: String = "",
+    val styleRuns: List<StyleRun> = emptyList(),
     val checklist: List<ChecklistItem> = emptyList(),
     val drawingPngBase64: String? = null,
     val color: NoteColor = NoteColor.NONE,
