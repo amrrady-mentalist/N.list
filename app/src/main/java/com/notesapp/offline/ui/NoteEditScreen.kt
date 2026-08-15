@@ -10,14 +10,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -40,6 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -200,23 +202,47 @@ fun NoteEditScreen(
             )
         }
 
-        // Drawing thumbnail slot, if this note has one.
-        current.drawingPngBase64?.let { b64 ->
-            val bmp = remember(b64) { decodeBase64ToBitmap(b64) }
-            if (bmp != null) {
-                Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = "Drawing",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { onOpenDrawing(current.id) }
-                )
+        // Drawing preview + body/checklist share a single scroll region, so
+        // scrolling to read/write the note also scrolls past the preview.
+        // The preview's height is tied directly to that scroll offset —
+        // full-size at the top, shrinking down to a small strip as the user
+        // scrolls — so it never permanently eats the whole screen the way a
+        // fixed-size full-width image would.
+        val bodyScrollState = rememberScrollState()
+        val density = LocalDensity.current
+        val maxImageHeight = 260.dp
+        val minImageHeight = 64.dp
+        val imageHeight = if (current.drawingPngBase64 != null) {
+            with(density) {
+                val maxPx = maxImageHeight.toPx()
+                val minPx = minImageHeight.toPx()
+                (maxPx - bodyScrollState.value).coerceIn(minPx, maxPx).toDp()
             }
-        }
+        } else 0.dp
 
-        Box(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(bodyScrollState)
+        ) {
+            current.drawingPngBase64?.let { b64 ->
+                val bmp = remember(b64) { decodeBase64ToBitmap(b64) }
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = "Drawing",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(imageHeight)
+                            .padding(top = 12.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onOpenDrawing(current.id) }
+                    )
+                }
+            }
+
             if (current.isChecklist) {
                 ChecklistEditor(
                     items = current.checklist,
@@ -224,7 +250,7 @@ fun NoteEditScreen(
                     onChange = { persist(current.copy(checklist = it)) }
                 )
             } else {
-                Box(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                Box(modifier = Modifier.fillMaxWidth()) {
                     if (bodyField.text.isEmpty()) {
                         Text("Note...", color = fgColor.copy(alpha = 0.28f), fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
                     }
@@ -235,8 +261,9 @@ fun NoteEditScreen(
                         textStyle = TextStyle(color = fgColor, fontSize = 16.sp),
                         cursorBrush = SolidColor(fgColor),
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = 8.dp)
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 200.dp)
+                            .padding(top = 8.dp, bottom = 24.dp)
                     )
                 }
             }
@@ -302,8 +329,8 @@ private fun ColorPickerRow(selected: NoteColor, fgColor: Color, onSelect: (NoteC
 
 @Composable
 private fun ChecklistEditor(items: List<ChecklistItem>, fgColor: Color, onChange: (List<ChecklistItem>) -> Unit) {
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 4.dp)) {
-        items(items, key = { it.id }) { item ->
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        items.forEach { item ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -341,15 +368,13 @@ private fun ChecklistEditor(items: List<ChecklistItem>, fgColor: Color, onChange
                 }
             }
         }
-        item {
-            Text(
-                text = "+ Add item",
-                color = fgColor.copy(alpha = 0.6f),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 24.dp)
-                    .clickable { onChange(items + ChecklistItem()) }
-            )
-        }
+        Text(
+            text = "+ Add item",
+            color = fgColor.copy(alpha = 0.6f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp, bottom = 24.dp)
+                .clickable { onChange(items + ChecklistItem()) }
+        )
     }
 }
