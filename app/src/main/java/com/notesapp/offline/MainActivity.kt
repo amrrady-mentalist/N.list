@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -108,17 +109,19 @@ private fun NotesApp(
     onToggleTheme: () -> Unit
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.List) }
+    var editVersion by remember { mutableStateOf(0) }
     val unlocked by lockFlowViewModel.unlocked.collectAsState()
 
     // Immersive mode everywhere except the "real app chrome" screens.
     val view = LocalView.current
-    LaunchedEffect(screen) {
+    LaunchedEffect(screen, isDarkTheme) {
         val activity = view.context as? Activity ?: return@LaunchedEffect
         val window = activity.window
         val controller = WindowCompat.getInsetsController(window, view)
         if (screen.showsSystemBars()) {
             controller.show(WindowInsetsCompat.Type.statusBars())
             window.statusBarColor = android.graphics.Color.TRANSPARENT
+            controller.isAppearanceLightStatusBars = !isDarkTheme
         } else {
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.statusBars())
@@ -151,22 +154,29 @@ private fun NotesApp(
                 screen = Screen.Lock
             }
         )
-        is Screen.Edit -> NoteEditScreen(
-            viewModel = notesViewModel,
-            noteId = s.noteId,
-            isDarkTheme = isDarkTheme,
-            onBack = { screen = Screen.List },
-            onOpenDrawing = { noteId -> screen = Screen.Drawing(noteId) }
-        )
+        is Screen.Edit -> key(s.noteId, editVersion) {
+            NoteEditScreen(
+                viewModel = notesViewModel,
+                noteId = s.noteId,
+                isDarkTheme = isDarkTheme,
+                onBack = { screen = Screen.List },
+                onOpenDrawing = { noteId -> screen = Screen.Drawing(noteId) }
+            )
+        }
         is Screen.Drawing -> {
             val note = notesViewModel.getNote(s.noteId)
             DrawingScreen(
                 initialPngBase64 = note?.drawingPngBase64,
+                isDarkTheme = isDarkTheme,
                 onSave = { base64 ->
                     notesViewModel.saveDrawing(s.noteId, base64)
+                    editVersion++ // force NoteEditScreen to re-read the fresh note on return
                     screen = Screen.Edit(s.noteId)
                 },
-                onBack = { screen = Screen.Edit(s.noteId) }
+                onBack = {
+                    editVersion++
+                    screen = Screen.Edit(s.noteId)
+                }
             )
         }
         is Screen.MagicSettings -> MagicSettingsScreen(
