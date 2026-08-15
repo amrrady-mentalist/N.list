@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -223,7 +224,7 @@ fun NoteEditScreen(
                     onChange = { persist(current.copy(checklist = it)) }
                 )
             } else {
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     if (bodyField.text.isEmpty()) {
                         Text("Note...", color = fgColor.copy(alpha = 0.28f), fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
                     }
