@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
@@ -172,10 +173,10 @@ fun NotesListScreen(
                         NoteCard(
                             note = note,
                             fgColor = fgColor,
+                            bgColor = bgColor,
                             onClick = { onOpenNote(note.id) },
                             onTogglePin = { viewModel.togglePin(note.id) },
                             onToggleArchive = { viewModel.toggleArchive(note.id) },
-                            onSetColor = { viewModel.setColor(note.id, it) },
                             onDelete = { viewModel.delete(note.id) }
                         )
                     }
@@ -256,10 +257,10 @@ private fun FilterChip(label: String, active: Boolean, fgColor: Color, onClick: 
 private fun NoteCard(
     note: Note,
     fgColor: Color,
+    bgColor: Color,
     onClick: () -> Unit,
     onTogglePin: () -> Unit,
     onToggleArchive: () -> Unit,
-    onSetColor: (NoteColor) -> Unit,
     onDelete: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -356,9 +357,16 @@ private fun NoteCard(
                 onDismissRequest = { showMenu = false },
                 properties = PopupProperties(focusable = true, dismissOnBackPress = true, dismissOnClickOutside = true)
             ) {
+                // A solid, opaque surface rather than the card-style glassPanel:
+                // this floats over arbitrary note-card content, so a translucent
+                // fill just reads as noise. Width is capped instead of stretching
+                // edge-to-edge, which is what made it feel like a full-screen sheet.
                 Column(
                     modifier = Modifier
-                        .glassPanel(radius = GlassRadius.md, tint = fgColor)
+                        .width(200.dp)
+                        .clip(RoundedCornerShape(GlassRadius.md))
+                        .background(bgColor)
+                        .border(1.dp, fgColor.copy(alpha = 0.14f), RoundedCornerShape(GlassRadius.md))
                         .padding(vertical = 6.dp)
                 ) {
                     GlassMenuItem(if (note.pinned) "Unpin" else "Pin", fgColor) {
@@ -366,23 +374,6 @@ private fun NoteCard(
                     }
                     GlassMenuItem(if (note.archived) "Unarchive" else "Archive", fgColor) {
                         onToggleArchive(); showMenu = false
-                    }
-                    Row(
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        NoteColor.entries.forEach { c ->
-                            Box(
-                                modifier = Modifier
-                                    .size(22.dp)
-                                    .clip(CircleShape)
-                                    .background(if (c == NoteColor.NONE) fgColor.copy(alpha = 0.2f) else c.toComposeColor())
-                                    .then(
-                                        if (c == note.color) Modifier.border(2.dp, fgColor, CircleShape) else Modifier
-                                    )
-                                    .clickable { onSetColor(c); showMenu = false }
-                            )
-                        }
                     }
                     GlassMenuItem("Delete", Danger) {
                         onDelete(); showMenu = false
