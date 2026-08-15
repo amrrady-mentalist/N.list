@@ -23,6 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -37,7 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -52,8 +55,6 @@ import com.notesapp.offline.ui.theme.BlobRose
 import com.notesapp.offline.ui.theme.BlobTeal
 import com.notesapp.offline.ui.theme.BlobViolet
 import java.io.ByteArrayOutputStream
-import kotlin.math.cos
-import kotlin.math.sin
 
 private data class DrawnStroke(val points: List<Offset>, val color: Color, val widthPx: Float)
 
@@ -154,7 +155,7 @@ fun DrawingScreen(
                         strokes.value = strokes.value.dropLast(1)
                     }
                 }) {
-                    UndoIcon(tint = fgColor)
+                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = fgColor)
                 }
                 IconButton(onClick = {
                     if (redoStack.value.isNotEmpty()) {
@@ -162,7 +163,7 @@ fun DrawingScreen(
                         redoStack.value = redoStack.value.dropLast(1)
                     }
                 }) {
-                    RedoIcon(tint = fgColor)
+                    Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = fgColor)
                 }
                 IconButton(onClick = { saveAndExit() }) {
                     CheckIcon(tint = fgColor)
@@ -359,83 +360,7 @@ private fun TrashIcon(tint: Color) {
     }
 }
 
-/**
- * Draws an arc plus an arrowhead whose wings are computed from the exact
- * tangent direction at the arc's endpoint, so it's mathematically
- * guaranteed to sit flush against the curve rather than looking pasted on
- * at a mismatched angle.
- */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCurvedArrow(
-    tint: Color,
-    center: Offset,
-    radius: Float,
-    startAngleDeg: Float,
-    sweepDeg: Float,
-    strokeWidth: Float
-) {
-    drawArc(
-        color = tint,
-        startAngle = startAngleDeg,
-        sweepAngle = sweepDeg,
-        useCenter = false,
-        topLeft = Offset(center.x - radius, center.y - radius),
-        size = Size(radius * 2, radius * 2),
-        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-    )
-    val endDeg = startAngleDeg + sweepDeg
-    val endRad = Math.toRadians(endDeg.toDouble())
-    val tipX = center.x + radius * cos(endRad).toFloat()
-    val tipY = center.y + radius * sin(endRad).toFloat()
-    val sweepSign = if (sweepDeg >= 0) 1f else -1f
-    val tangentX = -sin(endRad).toFloat() * sweepSign
-    val tangentY = cos(endRad).toFloat() * sweepSign
-    val normalX = cos(endRad).toFloat()
-    val normalY = sin(endRad).toFloat()
-    val arrowLen = radius * 0.6f
-    val arrowWidth = radius * 0.5f
-    val backX = tipX - tangentX * arrowLen
-    val backY = tipY - tangentY * arrowLen
-    val wing1 = Offset(backX + normalX * arrowWidth, backY + normalY * arrowWidth)
-    val wing2 = Offset(backX - normalX * arrowWidth, backY - normalY * arrowWidth)
-    val arrowPath = Path().apply {
-        moveTo(wing1.x, wing1.y)
-        lineTo(tipX, tipY)
-        lineTo(wing2.x, wing2.y)
-    }
-    drawPath(arrowPath, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
-}
-
-/**
- * The previous sweep (280° out of 360°) left only an 80° gap, so the arc
- * nearly closed into a full loop and read as a blob instead of an arrow.
- * A ~200° sweep leaves a clear, open hook shape — recognizable as
- * "undo"/"redo" at a glance, matching the visual weight of the other
- * hand-drawn icons in this toolbar.
- */
-@Composable
-private fun UndoIcon(tint: Color) {
-    Canvas(modifier = Modifier.size(22.dp)) {
-        drawCurvedArrow(
-            tint = tint,
-            center = Offset(size.width * 0.5f, size.height * 0.5f),
-            radius = size.minDimension * 0.34f,
-            startAngleDeg = -10f,
-            sweepDeg = -200f,
-            strokeWidth = 1.8.dp.toPx()
-        )
-    }
-}
-
-@Composable
-private fun RedoIcon(tint: Color) {
-    Canvas(modifier = Modifier.size(22.dp)) {
-        drawCurvedArrow(
-            tint = tint,
-            center = Offset(size.width * 0.5f, size.height * 0.5f),
-            radius = size.minDimension * 0.34f,
-            startAngleDeg = 190f,
-            sweepDeg = 200f,
-            strokeWidth = 1.8.dp.toPx()
-        )
-    }
-}
+// Undo/redo now use the platform's own Icons.AutoMirrored.Filled.Undo/Redo
+// (see the top bar above) rather than a hand-drawn arc — two attempts at
+// drawing a custom curved-arrow glyph both came out visually off, so this
+// swaps in the real, pre-tested icon instead of trying a third time.
