@@ -59,7 +59,7 @@ sealed class Screen {
 
 /** Screens that show the (transparent) status bar; everything else goes immersive. */
 private fun Screen.showsSystemBars(): Boolean =
-    this is Screen.List || this is Screen.Edit || this is Screen.MagicSettings
+    this is Screen.List || this is Screen.Edit || this is Screen.MagicSettings || this is Screen.Drawing
 
 class MainActivity : ComponentActivity() {
 
