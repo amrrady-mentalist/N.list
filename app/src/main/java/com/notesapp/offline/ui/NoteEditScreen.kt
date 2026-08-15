@@ -258,7 +258,7 @@ fun NoteEditScreen(
                         value = bodyField,
                         onValueChange = { updateBody(it) },
                         visualTransformation = RunsVisualTransformation(current.styleRuns),
-                        textStyle = TextStyle(color = fgColor, fontSize = 16.sp),
+                        textStyle = TextStyle(color = fgColor, fontSize = 16.sp, lineHeight = 25.sp),
                         cursorBrush = SolidColor(fgColor),
                         modifier = Modifier
                             .fillMaxWidth()
