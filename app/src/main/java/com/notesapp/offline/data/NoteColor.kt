@@ -4,5 +4,5 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 enum class NoteColor {
-    NONE, VIOLET, ROSE, TEAL, AMBER
+    NONE, VIOLET, ROSE, TEAL, AMBER, SKY, LIME, CORAL
 }
