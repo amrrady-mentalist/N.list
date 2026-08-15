@@ -1,5 +1,6 @@
 package com.notesapp.offline.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -25,83 +27,96 @@ import androidx.compose.ui.unit.sp
 import com.notesapp.offline.ui.theme.GlassRadius
 import com.notesapp.offline.ui.theme.glassPanel
 
-/** Wraps the current selection in [prefix]/[suffix], or inserts an empty pair at the cursor. */
-private fun wrapSelection(value: TextFieldValue, prefix: String, suffix: String = prefix): TextFieldValue {
-    val start = value.selection.min
-    val end = value.selection.max
-    val newText = value.text.substring(0, start) + prefix + value.text.substring(start, end) + suffix + value.text.substring(end)
-    val newCursor = if (start == end) start + prefix.length else end + prefix.length + suffix.length
-    return TextFieldValue(newText, TextRange(newCursor))
-}
-
-/** Inserts [prefix] at the start of the line the cursor/selection currently sits on. */
-private fun prefixCurrentLine(value: TextFieldValue, prefix: String): TextFieldValue {
+/** Inserts "• " (a real bullet character) at the start of the current line. */
+fun applyBulletLine(value: TextFieldValue): TextFieldValue {
     val cursor = value.selection.min
-    val searchFrom = (cursor - 1).coerceAtLeast(0)
-    val lineStart = value.text.lastIndexOf('\n', searchFrom).let { if (it == -1) 0 else it + 1 }
+    val lineStart = value.text.lastIndexOf('\n', (cursor - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
+    val prefix = "\u2022 "
     val newText = value.text.substring(0, lineStart) + prefix + value.text.substring(lineStart)
-    return TextFieldValue(
-        newText,
-        TextRange(value.selection.min + prefix.length, value.selection.max + prefix.length)
-    )
+    return TextFieldValue(newText, TextRange(value.selection.min + prefix.length, value.selection.max + prefix.length))
 }
 
-fun applyBold(value: TextFieldValue): TextFieldValue = wrapSelection(value, "**")
-fun applyItalic(value: TextFieldValue): TextFieldValue = wrapSelection(value, "_")
-fun applyUnderline(value: TextFieldValue): TextFieldValue = wrapSelection(value, "~")
-fun applyBulletLine(value: TextFieldValue): TextFieldValue = prefixCurrentLine(value, "- ")
-fun applyNumberedLine(value: TextFieldValue): TextFieldValue = prefixCurrentLine(value, "1. ")
+/** Inserts "N. " at the start of the current line, auto-incrementing from the previous numbered line. */
+fun applyNumberedLine(value: TextFieldValue): TextFieldValue {
+    val text = value.text
+    val cursor = value.selection.min
+    val lineStart = text.lastIndexOf('\n', (cursor - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
+
+    var prevNumber = 0
+    if (lineStart > 0) {
+        val prevLineEnd = lineStart - 1
+        val prevLineStart = text.lastIndexOf('\n', (prevLineEnd - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
+        val prevLine = text.substring(prevLineStart, prevLineEnd)
+        Regex("""^(\d+)\.\s""").find(prevLine)?.let { m ->
+            prevNumber = m.groupValues[1].toIntOrNull() ?: 0
+        }
+    }
+    val prefix = "${prevNumber + 1}. "
+    val newText = text.substring(0, lineStart) + prefix + text.substring(lineStart)
+    return TextFieldValue(newText, TextRange(value.selection.min + prefix.length, value.selection.max + prefix.length))
+}
 
 @Composable
 fun RichTextToolbar(
     showFormatting: Boolean,
     isChecklist: Boolean,
-    onAction: ((TextFieldValue) -> TextFieldValue) -> Unit,
+    isBoldActive: Boolean,
+    isItalicActive: Boolean,
+    isUnderlineActive: Boolean,
+    onToggleBold: () -> Unit,
+    onToggleItalic: () -> Unit,
+    onToggleUnderline: () -> Unit,
+    onBulletLine: () -> Unit,
+    onNumberedLine: () -> Unit,
     onToggleChecklist: () -> Unit,
     onSketch: () -> Unit,
     modifier: Modifier = Modifier,
-    tint: Color = Color.White
+    tint: Color = Color.White,
+    accent: Color = Color(0xFF8B7CFF)
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .glassPanel(radius = GlassRadius.lg, tint = tint)
-            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .padding(6.dp)
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (showFormatting) {
-            ToolbarButton(label = "B", weight = FontWeight.Bold, tint = tint) { onAction(::applyBold) }
-            ToolbarButton(label = "I", italic = true, tint = tint) { onAction(::applyItalic) }
-            ToolbarButton(label = "U", underline = true, tint = tint) { onAction(::applyUnderline) }
-            ToolbarButton(label = "\u2022", tint = tint) { onAction(::applyBulletLine) }
-            ToolbarButton(label = "1.", tint = tint) { onAction(::applyNumberedLine) }
+            ToolbarButton(label = "B", weight = FontWeight.Bold, active = isBoldActive, tint = tint, accent = accent, onClick = onToggleBold)
+            ToolbarButton(label = "I", italic = true, active = isItalicActive, tint = tint, accent = accent, onClick = onToggleItalic)
+            ToolbarButton(label = "U", underline = true, active = isUnderlineActive, tint = tint, accent = accent, onClick = onToggleUnderline)
+            ToolbarButton(label = "\u2022", tint = tint, accent = accent, onClick = onBulletLine)
+            ToolbarButton(label = "1.", tint = tint, accent = accent, onClick = onNumberedLine)
         }
-        ToolbarButton(label = if (isChecklist) "\u2611" else "\u2610+", tint = tint) { onToggleChecklist() }
-        ToolbarButton(label = "\u270E", tint = tint) { onSketch() }
+        ToolbarButton(label = if (isChecklist) "\u2611" else "\u2610", tint = tint, accent = accent, onClick = onToggleChecklist)
+        ToolbarButton(label = "\u270E", tint = tint, accent = accent, onClick = onSketch)
     }
 }
 
 @Composable
 private fun ToolbarButton(
     label: String,
-    weight: FontWeight = FontWeight.Normal,
+    weight: FontWeight = FontWeight.Bold,
     italic: Boolean = false,
     underline: Boolean = false,
+    active: Boolean = false,
     tint: Color = Color.White,
+    accent: Color = Color(0xFF8B7CFF),
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(100.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .size(42.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (active) accent else tint.copy(alpha = 0.10f))
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
-            color = tint,
-            fontSize = 15.sp,
+            color = if (active) Color.White else tint,
+            fontSize = 17.sp,
             fontWeight = weight,
             fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
             textDecoration = if (underline) TextDecoration.Underline else TextDecoration.None
