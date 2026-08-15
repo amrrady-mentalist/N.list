@@ -1,8 +1,11 @@
 package com.notesapp.offline.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -72,6 +76,7 @@ fun NoteEditScreen(
 ) {
     val existing = remember(noteId) { noteId?.let { viewModel.getNote(it) } }
     var current by remember(noteId) { mutableStateOf(existing ?: Note()) }
+    var everPersisted by remember(noteId) { mutableStateOf(existing != null) }
     var showColorPicker by remember { mutableStateOf(false) }
     var bodyField by remember(noteId) { mutableStateOf(TextFieldValue(existing?.body ?: "")) }
     var activeBold by remember(noteId) { mutableStateOf(false) }
@@ -81,12 +86,26 @@ fun NoteEditScreen(
     val bgColor = if (isDarkTheme) Color.Black else Color.White
     val fgColor = if (isDarkTheme) Color.White else Color.Black
 
+    fun isEmpty(note: Note) =
+        note.title.isBlank() && note.body.isBlank() && note.checklist.isEmpty() && note.drawingPngBase64 == null
+
     fun persist(note: Note) {
         current = note
-        if (note.title.isBlank() && note.body.isBlank() && note.checklist.isEmpty() && note.drawingPngBase64 == null) {
-            return // don't write a completely empty note to disk
-        }
+        if (isEmpty(note)) return // don't write a completely empty note to disk
+        everPersisted = true
         viewModel.save(note)
+    }
+
+    /** If this note ended up empty — either it never had content, or had
+     *  content that got fully deleted — remove it instead of leaving a
+     *  blank entry behind. Covers both a fresh note that's still blank
+     *  (never persisted, nothing to delete) and one that was typed into
+     *  and then fully cleared (was persisted, needs an actual delete). */
+    fun handleBack() {
+        if (isEmpty(current) && everPersisted) {
+            viewModel.delete(current.id)
+        }
+        onBack()
     }
 
     /** Routes every body-text mutation (typing or toolbar-triggered) through the same
@@ -112,9 +131,13 @@ fun NoteEditScreen(
             .imePadding()
             .padding(horizontal = 16.dp)
     ) {
+        // Intercepts the system back gesture too, not just the on-screen
+        // arrow, so an emptied-out note gets cleaned up either way.
+        BackHandler(onBack = { handleBack() })
+
         // Minimal top row — no AppBar chrome, just icons on the solid background.
         Row(modifier = Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
+            IconButton(onClick = { handleBack() }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = fgColor)
             }
             Box(modifier = Modifier.weight(1f))
@@ -246,7 +269,8 @@ fun NoteEditScreen(
                 onOpenDrawing(current.id)
             },
             modifier = Modifier.padding(vertical = 10.dp),
-            tint = fgColor
+            tint = fgColor,
+            accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
         )
     }
 }
@@ -256,6 +280,7 @@ private fun ColorPickerRow(selected: NoteColor, fgColor: Color, onSelect: (NoteC
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .padding(top = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -265,6 +290,9 @@ private fun ColorPickerRow(selected: NoteColor, fgColor: Color, onSelect: (NoteC
                     .size(28.dp)
                     .clip(CircleShape)
                     .background(if (c == NoteColor.NONE) fgColor.copy(alpha = 0.15f) else c.toComposeColor())
+                    .then(
+                        if (c == selected) Modifier.border(2.dp, fgColor, CircleShape) else Modifier
+                    )
                     .clickable { onSelect(c) }
             )
         }
@@ -284,8 +312,9 @@ private fun ChecklistEditor(items: List<ChecklistItem>, fgColor: Color, onChange
                 Box(
                     modifier = Modifier
                         .size(20.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(if (item.done) Color(0xFF4FE8C4) else fgColor.copy(alpha = 0.12f))
+                        .clip(CircleShape)
+                        .background(if (item.done) Color(0xFF4FE8C4) else Color.Transparent)
+                        .border(1.5.dp, if (item.done) Color(0xFF4FE8C4) else fgColor.copy(alpha = 0.35f), CircleShape)
                         .clickable {
                             onChange(items.map { if (it.id == item.id) it.copy(done = !it.done) else it })
                         }
