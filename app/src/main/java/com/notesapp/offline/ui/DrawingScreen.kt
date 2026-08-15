@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Paint as AndroidPaint
 import android.util.Base64
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -49,6 +52,8 @@ import com.notesapp.offline.ui.theme.BlobRose
 import com.notesapp.offline.ui.theme.BlobTeal
 import com.notesapp.offline.ui.theme.BlobViolet
 import java.io.ByteArrayOutputStream
+import kotlin.math.cos
+import kotlin.math.sin
 
 private data class DrawnStroke(val points: List<Offset>, val color: Color, val widthPx: Float)
 
@@ -83,6 +88,7 @@ fun DrawingScreen(
 ) {
     val bgColor = if (isDarkTheme) Color.Black else Color.White
     val fgColor = if (isDarkTheme) Color.White else Color.Black
+    val accent = MaterialTheme.colorScheme.primary
 
     val strokes = remember { mutableStateOf(emptyList<DrawnStroke>()) }
     val redoStack = remember { mutableStateOf(emptyList<DrawnStroke>()) }
@@ -93,29 +99,43 @@ fun DrawingScreen(
     var brushSize by remember { mutableFloatStateOf(8f) }
     var canvasSizePx by remember { mutableStateOf(Offset(1f, 1f)) }
 
+    // Back arrow behaves exactly like the checkmark — always save on exit,
+    // no separate "discard" path.
+    fun saveAndExit() {
+        val bitmap = rasterize(
+            strokes = strokes.value,
+            size = canvasSizePx,
+            background = if (backgroundCleared) null else backgroundBitmap,
+            fallbackBg = bgColor
+        )
+        onSave(bitmapToBase64(bitmap))
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor)
             .statusBarsPadding()
     ) {
+        // Matches the on-screen back arrow: system back gesture also saves
+        // and returns to the note, rather than skipping past it to the list.
+        BackHandler(onBack = { saveAndExit() })
+
         // Minimal top row, matching NoteEditScreen — no separate AppBar tint.
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(onClick = { saveAndExit() }) {
                 BackArrowIcon(tint = fgColor)
             }
             Text("Sketch", color = fgColor, fontSize = 18.sp)
             Row {
                 IconButton(onClick = {
-                    if (strokes.value.isNotEmpty()) {
-                        redoStack.value = emptyList()
-                        strokes.value = emptyList()
-                        backgroundCleared = true
-                    }
+                    redoStack.value = emptyList()
+                    strokes.value = emptyList()
+                    backgroundCleared = true
                 }) {
                     TrashIcon(tint = fgColor)
                 }
@@ -135,15 +155,7 @@ fun DrawingScreen(
                 }) {
                     RedoIcon(tint = fgColor)
                 }
-                IconButton(onClick = {
-                    val bitmap = rasterize(
-                        strokes = strokes.value,
-                        size = canvasSizePx,
-                        background = if (backgroundCleared) null else backgroundBitmap,
-                        fallbackBg = bgColor
-                    )
-                    onSave(bitmapToBase64(bitmap))
-                }) {
+                IconButton(onClick = { saveAndExit() }) {
                     CheckIcon(tint = fgColor)
                 }
             }
@@ -208,9 +220,15 @@ fun DrawingScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             palette.forEach { c ->
+                val selected = c == currentColor
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(if (selected) 38.dp else 32.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (selected) Modifier.border(2.dp, accent, CircleShape).padding(3.dp)
+                            else Modifier
+                        )
                         .clip(CircleShape)
                         .background(c)
                         .then(
@@ -332,52 +350,76 @@ private fun TrashIcon(tint: Color) {
     }
 }
 
+/**
+ * Draws an arc plus an arrowhead whose wings are computed from the exact
+ * tangent direction at the arc's endpoint, so it's mathematically
+ * guaranteed to sit flush against the curve rather than looking pasted on
+ * at a mismatched angle.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCurvedArrow(
+    tint: Color,
+    center: Offset,
+    radius: Float,
+    startAngleDeg: Float,
+    sweepDeg: Float,
+    strokeWidth: Float
+) {
+    drawArc(
+        color = tint,
+        startAngle = startAngleDeg,
+        sweepAngle = sweepDeg,
+        useCenter = false,
+        topLeft = Offset(center.x - radius, center.y - radius),
+        size = Size(radius * 2, radius * 2),
+        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+    )
+    val endDeg = startAngleDeg + sweepDeg
+    val endRad = Math.toRadians(endDeg.toDouble())
+    val tipX = center.x + radius * cos(endRad).toFloat()
+    val tipY = center.y + radius * sin(endRad).toFloat()
+    val sweepSign = if (sweepDeg >= 0) 1f else -1f
+    val tangentX = -sin(endRad).toFloat() * sweepSign
+    val tangentY = cos(endRad).toFloat() * sweepSign
+    val normalX = cos(endRad).toFloat()
+    val normalY = sin(endRad).toFloat()
+    val arrowLen = radius * 0.6f
+    val arrowWidth = radius * 0.5f
+    val backX = tipX - tangentX * arrowLen
+    val backY = tipY - tangentY * arrowLen
+    val wing1 = Offset(backX + normalX * arrowWidth, backY + normalY * arrowWidth)
+    val wing2 = Offset(backX - normalX * arrowWidth, backY - normalY * arrowWidth)
+    val arrowPath = Path().apply {
+        moveTo(wing1.x, wing1.y)
+        lineTo(tipX, tipY)
+        lineTo(wing2.x, wing2.y)
+    }
+    drawPath(arrowPath, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+}
+
 @Composable
 private fun UndoIcon(tint: Color) {
     Canvas(modifier = Modifier.size(20.dp)) {
-        val stroke = 1.8.dp.toPx()
-        val radius = size.minDimension * 0.32f
-        val center = Offset(size.width * 0.55f, size.height * 0.55f)
-        drawArc(
-            color = tint,
-            startAngle = 200f,
-            sweepAngle = 210f,
-            useCenter = false,
-            topLeft = Offset(center.x - radius, center.y - radius),
-            size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
-            style = Stroke(width = stroke, cap = StrokeCap.Round)
+        drawCurvedArrow(
+            tint = tint,
+            center = Offset(size.width * 0.55f, size.height * 0.55f),
+            radius = size.minDimension * 0.32f,
+            startAngleDeg = 40f,
+            sweepDeg = -280f,
+            strokeWidth = 1.8.dp.toPx()
         )
-        val arrowTip = Offset(center.x - radius, center.y - radius * 0.05f)
-        val arrow = Path().apply {
-            moveTo(arrowTip.x + radius * 0.55f, arrowTip.y - radius * 0.55f)
-            lineTo(arrowTip.x, arrowTip.y)
-            lineTo(arrowTip.x + radius * 0.55f, arrowTip.y + radius * 0.35f)
-        }
-        drawPath(arrow, color = tint, style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 
 @Composable
 private fun RedoIcon(tint: Color) {
     Canvas(modifier = Modifier.size(20.dp)) {
-        val stroke = 1.8.dp.toPx()
-        val radius = size.minDimension * 0.32f
-        val center = Offset(size.width * 0.45f, size.height * 0.55f)
-        drawArc(
-            color = tint,
-            startAngle = -20f,
-            sweepAngle = -210f,
-            useCenter = false,
-            topLeft = Offset(center.x - radius, center.y - radius),
-            size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
-            style = Stroke(width = stroke, cap = StrokeCap.Round)
+        drawCurvedArrow(
+            tint = tint,
+            center = Offset(size.width * 0.45f, size.height * 0.55f),
+            radius = size.minDimension * 0.32f,
+            startAngleDeg = 140f,
+            sweepDeg = 280f,
+            strokeWidth = 1.8.dp.toPx()
         )
-        val arrowTip = Offset(center.x + radius, center.y - radius * 0.05f)
-        val arrow = Path().apply {
-            moveTo(arrowTip.x - radius * 0.55f, arrowTip.y - radius * 0.55f)
-            lineTo(arrowTip.x, arrowTip.y)
-            lineTo(arrowTip.x - radius * 0.55f, arrowTip.y + radius * 0.35f)
-        }
-        drawPath(arrow, color = tint, style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
