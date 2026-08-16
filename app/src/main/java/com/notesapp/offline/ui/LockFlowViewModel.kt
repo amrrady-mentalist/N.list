@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.notesapp.offline.data.ChecklistItem
+import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.ForceListEngine
 import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.Note
@@ -29,6 +30,11 @@ class LockFlowViewModel(
     private val _unlocked = MutableStateFlow(false)
     val unlocked: StateFlow<Boolean> = _unlocked.asStateFlow()
 
+    private val _lockBackgroundPath = MutableStateFlow<String?>(null)
+    /** Path to the classic-lock background photo, if one's set in Magic
+     *  Settings — read fresh every time the flow (re)starts via reset(). */
+    val lockBackgroundPath: StateFlow<String?> = _lockBackgroundPath.asStateFlow()
+
     fun onBlackoutDoubleTap() {
         _screen.value = LockScreenState.AMBIENT
     }
@@ -47,6 +53,9 @@ class LockFlowViewModel(
         _pinDigits.value = ""
         _screen.value = LockScreenState.BLACKOUT
         _unlocked.value = false
+        viewModelScope.launch {
+            _lockBackgroundPath.value = magicRepo.load().lockBackgroundPath
+        }
     }
 
     fun onPinKey(key: String) {
@@ -63,33 +72,72 @@ class LockFlowViewModel(
     }
 
     /**
-     * The actual trick: ANY 4 digits resolve and unlock — there's no
-     * "correct" PIN to fail on, matching the original app. The digits are
-     * only used as the force-list's positional input.
+     * Direct port of the web app's resolvePin(): ANY 4 digits resolve and
+     * unlock — there's no "correct" PIN to fail on. The digits are only
+     * ever used as positional/lookup input for whichever effect is active.
+     *
+     * - No active effect: unlocks with no note created (matches the JS,
+     *   which only acts `if(fx)`).
+     * - LIST effect: same force-list math as before, now keyed off the
+     *   active effect specifically rather than a single global effect.
+     * - WORD effect: looks up the out whose code matches the PIN's last
+     *   N digits (N = the longest configured out code, min 2 — mirrors
+     *   the JS's codeLen expansion), substitutes the matched word (or a
+     *   "🧐" placeholder if nothing matches) into the body wherever
+     *   "$$$$" appears, and creates a fresh note every time — the web
+     *   app never reuses/updates a previous note for word effects, only
+     *   for list effects.
      */
     private fun resolvePin(pin: String) {
         viewModelScope.launch {
-            val effect = magicRepo.load()
-            if (effect.items.any { it.isNotBlank() }) {
-                val relevant = ForceListEngine.relevantDigits(effect.items, pin)
-                val forced = ForceListEngine.buildForcedList(effect.items, effect.forceWord, relevant)
+            val store = magicRepo.load()
+            val fx = store.activeEffect
 
-                val allNotes = notesRepo.loadAll()
-                val existing = effect.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
+            if (fx != null) {
+                val codeLen = when (fx.type) {
+                    EffectType.LIST -> ForceListEngine.codeDigits(fx.items)
+                    EffectType.WORD -> (fx.outs.maxOfOrNull { it.code.length } ?: 2).coerceAtLeast(2)
+                }
+                val lastDigits = if (pin.length >= codeLen) pin.takeLast(codeLen) else pin
 
-                val checklist = forced.map { ChecklistItem(text = it, done = false) }
-                val note = (existing ?: Note(magicEffectId = "active")).copy(
-                    title = effect.title,
-                    checklist = checklist,
-                    pinned = true,
-                    archived = false,
-                    updatedAt = System.currentTimeMillis()
-                )
-                notesRepo.upsert(note)
-                if (existing == null) {
-                    magicRepo.save(effect.copy(linkedNoteId = note.id))
+                when (fx.type) {
+                    EffectType.LIST -> {
+                        val relevant = ForceListEngine.relevantDigits(fx.items, lastDigits)
+                        val forced = ForceListEngine.buildForcedList(fx.items, fx.forceWord, relevant)
+
+                        val allNotes = notesRepo.loadAll()
+                        val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
+
+                        val checklist = forced.map { ChecklistItem(text = it, done = false) }
+                        val note = (existing ?: Note(magicEffectId = fx.id)).copy(
+                            title = fx.title,
+                            checklist = checklist,
+                            pinned = true,
+                            archived = false,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        notesRepo.upsert(note)
+                        if (existing == null) {
+                            magicRepo.updateEffect(fx.copy(linkedNoteId = note.id))
+                        }
+                    }
+                    EffectType.WORD -> {
+                        val target = lastDigits.toIntOrNull()
+                        val match = fx.outs.firstOrNull { it.code.isNotEmpty() && it.code.toIntOrNull() == target }
+                        val word = if (match != null) match.word else "\uD83E\uDDD0" // 🧐 — matches the web app's fallback
+                        val note = Note(
+                            title = fx.title,
+                            body = fx.body.replace("$$$$", word),
+                            drawingPngBase64 = match?.drawingPngBase64,
+                            pinned = true,
+                            archived = false,
+                            magicEffectId = fx.id
+                        )
+                        notesRepo.upsert(note)
+                    }
                 }
             }
+
             _unlocked.value = true
         }
     }
