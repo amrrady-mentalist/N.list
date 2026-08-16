@@ -147,7 +147,7 @@ fun RichTextToolbar(
             ChecklistIcon(tint = if (isChecklist) accent else tint)
         }
         ToolbarButtonContainer(onClick = onSketch) {
-            Text("\u270E", color = tint, fontSize = 17.sp)
+            PencilIcon(tint = tint)
         }
     }
 }
@@ -184,5 +184,35 @@ private fun ChecklistIcon(tint: Color) {
             lineTo(size.width * 0.74f, size.height * 0.34f)
         }
         drawPath(check, color = tint, style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round))
+    }
+}
+
+/** A hand-drawn pencil silhouette (tip at bottom-left, cap at top-right),
+ *  in the same outline style as the other toolbar/toolbar-adjacent icons
+ *  (TrashIcon, ChecklistIcon) — a stroked path rather than a text glyph,
+ *  so it reads consistently instead of standing out as a mismatched font
+ *  character. */
+@Composable
+private fun PencilIcon(tint: Color) {
+    Canvas(modifier = Modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        val stroke = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+        val outline = Path().apply {
+            moveTo(w * 0.08f, h * 0.92f)
+            lineTo(w * 0.219f, h * 0.602f)
+            lineTo(w * 0.741f, h * 0.08f)
+            lineTo(w * 0.92f, h * 0.259f)
+            lineTo(w * 0.398f, h * 0.781f)
+            close()
+        }
+        drawPath(outline, color = tint, style = stroke)
+        drawLine(
+            tint,
+            Offset(w * 0.219f, h * 0.602f),
+            Offset(w * 0.398f, h * 0.781f),
+            strokeWidth = stroke.width,
+            cap = StrokeCap.Round
+        )
     }
 }
