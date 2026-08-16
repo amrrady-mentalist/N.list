@@ -9,14 +9,9 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -270,7 +265,23 @@ private fun PinDotsRow(filledCount: Int) {
 
 @Composable
 private fun PinKeypad(onKey: (String) -> Unit) {
-    val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "empty", "0", "delete")
+    // The web app uses a fixed pixel size for each key (68px) and grid
+    // gap (18px row / 26px column) — not a percentage of screen width.
+    // The previous version used a stretchy LazyVerticalGrid with
+    // aspectRatio(1f) filling the full screen width, which is what made
+    // the keys balloon up so much larger than the original. This uses
+    // fixed-size circles in a plain Row/Column grid instead, so they stay
+    // the same size regardless of screen width — matching the web app's
+    // ~68dp keys, with the gap tightened down further per request (12dp
+    // row / 18dp column, vs. the web app's 18px / 26px).
+    val keySize = 62.dp
+    val rows = listOf(
+        listOf("1", "2", "3"),
+        listOf("4", "5", "6"),
+        listOf("7", "8", "9"),
+        listOf("empty", "0", "delete")
+    )
+
     // Briefly highlights whichever key was tapped last — matches the
     // reference design's glowing "3" key. Purely a local UI touch, doesn't
     // need to live in the ViewModel.
@@ -282,58 +293,58 @@ private fun PinKeypad(onKey: (String) -> Unit) {
         }
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 32.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        items(keys) { key ->
-            when (key) {
-                "empty" -> Box(modifier = Modifier.aspectRatio(1f))
-                "delete" -> Box(
-                    modifier = Modifier
-                        .aspectRatio(1f)
-                        .clip(CircleShape)
-                        .pointerInput(Unit) { detectTapGestures(onTap = { onKey("delete") }) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Delete", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
-                }
-                else -> {
-                    val glowing = glowingKey == key
-                    val glowAlpha by androidx.compose.animation.core.animateFloatAsState(
-                        targetValue = if (glowing) 1f else 0f,
-                        animationSpec = androidx.compose.animation.core.tween(180),
-                        label = "keyGlow"
-                    )
-                    Box(
-                        modifier = Modifier
-                            .aspectRatio(1f)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.10f + 0.10f * glowAlpha))
-                            .border(1.dp, Color.White.copy(alpha = 0.14f + 0.30f * glowAlpha), CircleShape)
-                            .then(
-                                if (glowAlpha > 0f) {
-                                    Modifier.background(
-                                        androidx.compose.ui.graphics.Brush.radialGradient(
-                                            listOf(Color.White.copy(alpha = 0.18f * glowAlpha), Color.Transparent)
-                                        ),
-                                        CircleShape
-                                    )
-                                } else Modifier
+        rows.forEach { row ->
+            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                row.forEach { key ->
+                    when (key) {
+                        "empty" -> Box(modifier = Modifier.size(keySize))
+                        "delete" -> Box(
+                            modifier = Modifier
+                                .size(keySize)
+                                .clip(CircleShape)
+                                .pointerInput(Unit) { detectTapGestures(onTap = { onKey("delete") }) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Delete", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                        }
+                        else -> {
+                            val glowing = glowingKey == key
+                            val glowAlpha by androidx.compose.animation.core.animateFloatAsState(
+                                targetValue = if (glowing) 1f else 0f,
+                                animationSpec = androidx.compose.animation.core.tween(180),
+                                label = "keyGlow"
                             )
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = {
-                                    glowingKey = key
-                                    onKey(key)
-                                })
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(key, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Light)
+                            Box(
+                                modifier = Modifier
+                                    .size(keySize)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.10f + 0.10f * glowAlpha))
+                                    .border(1.dp, Color.White.copy(alpha = 0.14f + 0.30f * glowAlpha), CircleShape)
+                                    .then(
+                                        if (glowAlpha > 0f) {
+                                            Modifier.background(
+                                                androidx.compose.ui.graphics.Brush.radialGradient(
+                                                    listOf(Color.White.copy(alpha = 0.18f * glowAlpha), Color.Transparent)
+                                                ),
+                                                CircleShape
+                                            )
+                                        } else Modifier
+                                    )
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(onTap = {
+                                            glowingKey = key
+                                            onKey(key)
+                                        })
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(key, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Light)
+                            }
+                        }
                     }
                 }
             }
