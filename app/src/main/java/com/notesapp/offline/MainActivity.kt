@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
@@ -28,6 +29,7 @@ import com.notesapp.offline.data.NotesRepository
 import com.notesapp.offline.data.ThemeMode
 import com.notesapp.offline.data.ThemeRepository
 import com.notesapp.offline.ui.DrawingScreen
+import com.notesapp.offline.ui.EffectEditorScreen
 import com.notesapp.offline.ui.LockFlowHost
 import com.notesapp.offline.ui.LockFlowViewModel
 import com.notesapp.offline.ui.LockFlowViewModelFactory
@@ -56,11 +58,14 @@ sealed class Screen {
     data class Edit(val noteId: String?) : Screen()
     data class Drawing(val noteId: String) : Screen()
     data object MagicSettings : Screen()
+    data class EffectEditor(val effectId: String) : Screen()
+    data class OutSketch(val effectId: String, val outId: String) : Screen()
 }
 
 /** Screens that show the (transparent) status bar; everything else goes immersive. */
 private fun Screen.showsSystemBars(): Boolean =
-    this is Screen.List || this is Screen.Edit || this is Screen.MagicSettings || this is Screen.Drawing
+    this is Screen.List || this is Screen.Edit || this is Screen.MagicSettings ||
+        this is Screen.Drawing || this is Screen.EffectEditor || this is Screen.OutSketch
 
 class MainActivity : ComponentActivity() {
 
@@ -112,7 +117,18 @@ private fun NotesApp(
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.List) }
     var editVersion by remember { mutableStateOf(0) }
+    var effectVersion by remember { mutableStateOf(0) }
     val unlocked by lockFlowViewModel.unlocked.collectAsState()
+
+    // The lock flow writes notes straight to NotesRepository, bypassing
+    // NotesViewModel's in-memory cache (it can run before that ViewModel's
+    // ever loaded anything for this screen). Force a reload right when it
+    // hands control back, so a note an effect just created/updated is
+    // actually visible on the list instead of waiting for some unrelated
+    // trigger to refresh it.
+    LaunchedEffect(unlocked) {
+        if (unlocked) notesViewModel.refresh()
+    }
 
     // Immersive mode everywhere except the "real app chrome" screens.
     val view = LocalView.current
@@ -183,7 +199,57 @@ private fun NotesApp(
         }
         is Screen.MagicSettings -> MagicSettingsScreen(
             repo = magicRepo,
-            onBack = { screen = Screen.List }
+            isDarkTheme = isDarkTheme,
+            onBack = { screen = Screen.List },
+            onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId) }
         )
+        is Screen.EffectEditor -> key(s.effectId, effectVersion) {
+            EffectEditorScreen(
+                repo = magicRepo,
+                effectId = s.effectId,
+                isDarkTheme = isDarkTheme,
+                onBack = { screen = Screen.MagicSettings },
+                onOpenSketch = { outId -> screen = Screen.OutSketch(s.effectId, outId) }
+            )
+        }
+        is Screen.OutSketch -> {
+            var initialPng by remember(s.effectId, s.outId) { mutableStateOf<String?>(null) }
+            var loadedOut by remember(s.effectId, s.outId) { mutableStateOf(false) }
+            val sketchScope = rememberCoroutineScope()
+
+            LaunchedEffect(s.effectId, s.outId) {
+                val store = magicRepo.load()
+                val fx = store.effects.firstOrNull { it.id == s.effectId }
+                initialPng = fx?.outs?.firstOrNull { it.id == s.outId }?.drawingPngBase64
+                loadedOut = true
+            }
+
+            if (loadedOut) {
+                DrawingScreen(
+                    initialPngBase64 = initialPng,
+                    isDarkTheme = isDarkTheme,
+                    onSave = { base64 ->
+                        sketchScope.launch {
+                            val store = magicRepo.load()
+                            val fx = store.effects.firstOrNull { it.id == s.effectId }
+                            if (fx != null) {
+                                val updated = fx.copy(
+                                    outs = fx.outs.map { out ->
+                                        if (out.id == s.outId) out.copy(drawingPngBase64 = base64) else out
+                                    }
+                                )
+                                magicRepo.updateEffect(updated)
+                            }
+                            effectVersion++ // force EffectEditorScreen to re-read the fresh effect on return
+                            screen = Screen.EffectEditor(s.effectId)
+                        }
+                    },
+                    onBack = {
+                        effectVersion++
+                        screen = Screen.EffectEditor(s.effectId)
+                    }
+                )
+            }
+        }
     }
 }
