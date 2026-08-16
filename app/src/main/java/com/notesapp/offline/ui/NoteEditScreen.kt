@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -220,51 +223,71 @@ fun NoteEditScreen(
             }
         } else 0.dp
 
-        Column(
+        // Tapping anywhere in this region — blank space below short text,
+        // padding around the edges, the gap under a short checklist —
+        // brings up the keyboard by focusing the body field. This click
+        // handler sits on the outer, full-height Box; taps that land on
+        // an actual child (the drawing image, a checklist row, the text
+        // field itself) are consumed by that child first and never reach
+        // it, so this only fires for genuinely empty space.
+        val bodyFocusRequester = remember { FocusRequester() }
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(bodyScrollState)
-        ) {
-            current.drawingPngBase64?.let { b64 ->
-                val bmp = remember(b64) { decodeBase64ToBitmap(b64) }
-                if (bmp != null) {
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = "Drawing",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(imageHeight)
-                            .padding(top = 12.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable { onOpenDrawing(current.id) }
-                    )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    if (!current.isChecklist) bodyFocusRequester.requestFocus()
                 }
-            }
-
-            if (current.isChecklist) {
-                ChecklistEditor(
-                    items = current.checklist,
-                    fgColor = fgColor,
-                    onChange = { persist(current.copy(checklist = it)) }
-                )
-            } else {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    if (bodyField.text.isEmpty()) {
-                        Text("Note...", color = fgColor.copy(alpha = 0.28f), fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(bodyScrollState)
+            ) {
+                current.drawingPngBase64?.let { b64 ->
+                    val bmp = remember(b64) { decodeBase64ToBitmap(b64) }
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "Drawing",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(imageHeight)
+                                .padding(top = 12.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { onOpenDrawing(current.id) }
+                        )
                     }
-                    BasicTextField(
-                        value = bodyField,
-                        onValueChange = { updateBody(it) },
-                        visualTransformation = RunsVisualTransformation(current.styleRuns),
-                        textStyle = TextStyle(color = fgColor, fontSize = 16.sp, lineHeight = 25.sp),
-                        cursorBrush = SolidColor(fgColor),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = 200.dp)
-                            .padding(top = 8.dp, bottom = 24.dp)
+                }
+
+                if (current.isChecklist) {
+                    ChecklistEditor(
+                        items = current.checklist,
+                        fgColor = fgColor,
+                        onChange = { persist(current.copy(checklist = it)) }
                     )
+                } else {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        if (bodyField.text.isEmpty()) {
+                            Text("Note...", color = fgColor.copy(alpha = 0.28f), fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+                        }
+                        BasicTextField(
+                            value = bodyField,
+                            onValueChange = { updateBody(it) },
+                            visualTransformation = RunsVisualTransformation(current.styleRuns),
+                            textStyle = TextStyle(color = fgColor, fontSize = 16.sp, lineHeight = 25.sp),
+                            cursorBrush = SolidColor(fgColor),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 200.dp)
+                                .padding(top = 8.dp, bottom = 24.dp)
+                                .focusRequester(bodyFocusRequester)
+                        )
+                    }
                 }
             }
         }
