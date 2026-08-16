@@ -54,7 +54,11 @@ class NotesViewModel(private val repo: NotesRepository) : ViewModel() {
         refresh()
     }
 
-    private fun refresh() {
+    /** Public so screens that write to the repo directly (e.g. the magic
+     *  lock flow, which bypasses this ViewModel's in-memory cache on
+     *  purpose since it can run without one ever having been created for
+     *  this session) can force a reload once they're done. */
+    fun refresh() {
         viewModelScope.launch {
             _allNotes.value = repo.loadAll()
             _loaded.value = true
