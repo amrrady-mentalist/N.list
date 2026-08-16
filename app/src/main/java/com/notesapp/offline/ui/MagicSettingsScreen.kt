@@ -104,7 +104,12 @@ fun MagicSettingsScreen(
         if (uri != null) {
             scope.launch {
                 val path = copyImageToInternal(context, uri, repo.mediaDir, "lock_bg")
-                persist(store.copy(lockBackgroundPath = path))
+                // Only overwrite the saved setting on an actual successful
+                // copy — if it silently failed, leave whatever background
+                // was already set (if any) alone rather than blanking it.
+                if (path != null) {
+                    persist(store.copy(lockBackgroundPath = path))
+                }
             }
         }
     }
@@ -385,14 +390,29 @@ private fun EffectCard(
 }
 
 /** Copies a picked gallery image into the app's own storage so it survives
- *  even if the original content:// URI's permission grant doesn't. */
+ *  even if the original content:// URI's permission grant doesn't.
+ *
+ *  Bug this fixes: the previous version called dest.absolutePath
+ *  unconditionally after the copy block — if openInputStream(uri) ever
+ *  returned null (no exception, just null; it happens), the ?.use{} block
+ *  silently did nothing, no file was ever written, and this still reported
+ *  success with a path pointing at a file that doesn't exist. Every later
+ *  BitmapFactory.decodeFile() on that path then fails silently too — no
+ *  crash anywhere, the background (and the settings-screen thumbnail) just
+ *  quietly never appears. Now it explicitly checks the stream opened and
+ *  the resulting file is non-empty before calling it a success. */
 private suspend fun copyImageToInternal(context: Context, uri: Uri, dir: File, prefix: String): String? =
     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         runCatching {
             val dest = File(dir, "${prefix}_${System.currentTimeMillis()}.jpg")
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
+            val input = context.contentResolver.openInputStream(uri)
+                ?: return@runCatching null
+            input.use { stream ->
+                dest.outputStream().use { output -> stream.copyTo(output) }
             }
-            dest.absolutePath
+            if (dest.exists() && dest.length() > 0L) dest.absolutePath else {
+                dest.delete()
+                null
+            }
         }.getOrNull()
     }
