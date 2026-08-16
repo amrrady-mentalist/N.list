@@ -149,7 +149,7 @@ fun MagicSettingsScreen(
             color = fgColor.copy(alpha = 0.34f),
             fontSize = 13.sp,
             lineHeight = 19.sp,
-            modifier = Modifier.padding(horizontal = 20.dp, bottom = 14.dp)
+            modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp)
         )
 
         LazyColumn(
