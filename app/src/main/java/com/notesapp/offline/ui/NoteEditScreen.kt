@@ -58,7 +58,9 @@ import com.notesapp.offline.ui.theme.RunsVisualTransformation
 import com.notesapp.offline.ui.theme.applyEditToRuns
 import com.notesapp.offline.ui.theme.toComposeColor
 
-private fun decodeBase64ToBitmap(base64: String) = runCatching {
+/** Package-visible (not file-private) so other screens in this package —
+ *  e.g. the effect editor's out-sketch thumbnails — can reuse it too. */
+fun decodeBase64ToBitmap(base64: String) = runCatching {
     val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
     android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 }.getOrNull()
