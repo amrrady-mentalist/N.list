@@ -35,7 +35,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.notesapp.offline.ui.theme.glassPanel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -113,7 +112,7 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
         while (true) {
             val now = Date()
             time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
-            date = SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now)
+            date = SimpleDateFormat("EEE MMM d", Locale.getDefault()).format(now)
             kotlinx.coroutines.delay(15_000)
         }
     }
@@ -142,33 +141,29 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
                 1f to Color.Black.copy(alpha = 0.6f)
             )
         )
-        // Liquid-glass clock card — same frosted-panel treatment (translucent
-        // fill, soft highlight border, corner sheen) used everywhere else in
-        // the app, so the ambient clock reads as one glass "widget" sitting
-        // on the wallpaper, the way Apple's Lock Screen clock does, rather
-        // than bare text floating on the photo.
+        // iOS-style Lock Screen clock: bare text directly on the wallpaper
+        // (no glass card behind it), a small date above, and a very large,
+        // ultra-thin time that stretches most of the screen's width — the
+        // look from the reference screenshot, minus the photo depth/subject
+        // cutout effect (that's a separate, much bigger feature).
         Column(
-            modifier = Modifier
-                .glassPanel(
-                    radius = 40.dp,
-                    fill = Color.White.copy(alpha = 0.10f),
-                    borderColor = Color.White.copy(alpha = 0.24f)
-                )
-                .padding(horizontal = 44.dp, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = time,
-                color = Color.White,
-                fontSize = 80.sp,
-                fontWeight = FontWeight.SemiBold
+                text = date,
+                color = Color.White.copy(alpha = 0.92f),
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Medium
             )
             Text(
-                text = date,
-                color = Color.White.copy(alpha = 0.68f),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(top = 8.dp)
+                text = time,
+                color = Color.White,
+                fontSize = 108.sp,
+                fontWeight = FontWeight.Thin,
+                letterSpacing = (-2).sp,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.padding(top = 2.dp)
             )
         }
     }
