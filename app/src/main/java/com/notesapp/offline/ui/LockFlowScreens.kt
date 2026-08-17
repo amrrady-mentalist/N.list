@@ -385,7 +385,7 @@ private fun PinKeypad(onKey: (String) -> Unit, modifier: Modifier = Modifier) {
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(key, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Light)
+                                Text(key, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Normal)
                             }
                         }
                     }
