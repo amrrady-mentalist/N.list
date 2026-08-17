@@ -140,11 +140,11 @@ fun MagicSettingsScreen(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = fgColor)
             }
             Text(
-                "Magic Settings",
+                "Settings",
                 color = fgColor,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f).padding(start = 4.dp)
+                modifier = Modifier.weight(1f).padding(start = 18.dp)
             )
             Box(modifier = Modifier.size(40.dp))
         }
