@@ -126,7 +126,7 @@ private val ClockFontFamily = FontFamily(Font(R.font.clock_numerals))
 // app's font-preview tool (unknown unit, and many of those auto-shrink text
 // to fit regardless of the number shown), so build, look at it on-device,
 // and tell me to push it up or down; same for stretch.
-private val ClockSize = 130.sp
+private val ClockSize = 390.sp // tripled from 130.sp
 private const val ClockStretch = 1f
 
 @Composable
