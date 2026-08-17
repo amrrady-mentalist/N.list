@@ -206,6 +206,7 @@ private fun NotesApp(
         is Screen.EffectEditor -> key(s.effectId, effectVersion) {
             EffectEditorScreen(
                 repo = magicRepo,
+                notesViewModel = notesViewModel,
                 effectId = s.effectId,
                 isDarkTheme = isDarkTheme,
                 onBack = { screen = Screen.MagicSettings },
