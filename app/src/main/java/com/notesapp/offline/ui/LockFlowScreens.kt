@@ -331,29 +331,52 @@ private fun PinKeypad(onKey: (String) -> Unit, modifier: Modifier = Modifier) {
                             Box(
                                 modifier = Modifier
                                     .size(keySize)
-                                    // Soft ambient halo that sits behind the circle and
-                                    // bleeds outside it — same diffuse radial-light look
-                                    // as the torch button reference. Always present at a
-                                    // low level, brightens further on tap.
+                                    // A very faint, tiny hint of light that just barely
+                                    // reaches past the button's own edge on tap — kept
+                                    // small and subtle on purpose, not a halo. Drawn
+                                    // before .clip so it isn't cut off at the circle.
                                     .drawBehind {
-                                        val haloRadius = size.minDimension * (0.95f + 0.35f * glowAlpha)
-                                        drawCircle(
-                                            brush = Brush.radialGradient(
-                                                colors = listOf(
-                                                    Color.White.copy(alpha = 0.16f + 0.22f * glowAlpha),
-                                                    Color.White.copy(alpha = 0.05f + 0.09f * glowAlpha),
-                                                    Color.Transparent
+                                        if (glowAlpha > 0f) {
+                                            val hintRadius = size.minDimension * 0.62f
+                                            drawCircle(
+                                                brush = Brush.radialGradient(
+                                                    colors = listOf(
+                                                        Color.White.copy(alpha = 0.05f * glowAlpha),
+                                                        Color.Transparent
+                                                    ),
+                                                    center = center,
+                                                    radius = hintRadius
                                                 ),
-                                                center = center,
-                                                radius = haloRadius
-                                            ),
-                                            radius = haloRadius,
-                                            center = center
-                                        )
+                                                radius = hintRadius,
+                                                center = center
+                                            )
+                                        }
                                     }
                                     .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.10f + 0.10f * glowAlpha))
-                                    .border(1.dp, Color.White.copy(alpha = 0.14f + 0.30f * glowAlpha), CircleShape)
+                                    // Frosted-glass base: a soft top-to-bottom sheen
+                                    // instead of a flat fill, so the key reads as a
+                                    // piece of glass at rest.
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.16f),
+                                                Color.White.copy(alpha = 0.06f)
+                                            )
+                                        )
+                                    )
+                                    // The tap feedback itself lives entirely inside the
+                                    // glass — a brightening centered in the circle,
+                                    // clipped to it, so no glow escapes the button.
+                                    .background(
+                                        Brush.radialGradient(
+                                            colors = listOf(
+                                                Color.White.copy(alpha = 0.42f * glowAlpha),
+                                                Color.White.copy(alpha = 0.14f * glowAlpha),
+                                                Color.Transparent
+                                            )
+                                        )
+                                    )
+                                    .border(1.dp, Color.White.copy(alpha = 0.20f + 0.25f * glowAlpha), CircleShape)
                                     .pointerInput(Unit) {
                                         detectTapGestures(onTap = {
                                             glowingKey = key
