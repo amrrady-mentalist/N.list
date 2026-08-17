@@ -3,7 +3,6 @@ package com.notesapp.offline.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.notesapp.offline.data.ChecklistItem
 import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.ForceListEngine
 import com.notesapp.offline.data.MagicRepository
@@ -108,10 +107,15 @@ class LockFlowViewModel(
                         val allNotes = notesRepo.loadAll()
                         val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
 
-                        val checklist = forced.map { ChecklistItem(text = it, done = false) }
+                        // A numbered plain-text list ("1 - Item"), matching
+                        // the web app's <ol><li> rendering — not an actual
+                        // checkbox checklist, which reads as a to-do list
+                        // rather than a forced sequence of items.
+                        val numbered = forced.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
                         val note = (existing ?: Note(magicEffectId = fx.id)).copy(
                             title = fx.title,
-                            checklist = checklist,
+                            body = numbered,
+                            checklist = emptyList(),
                             pinned = true,
                             archived = false,
                             updatedAt = System.currentTimeMillis()
