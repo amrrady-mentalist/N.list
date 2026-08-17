@@ -199,7 +199,7 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
             // stuck to the bottom edge.
             Box(modifier = Modifier.weight(0.38f))
 
-            PinKeypad(onKey = viewModel::onPinKey, modifier = Modifier.padding(top = 29.dp)) // +2mm (≈12.6dp) then another +2.5mm (≈15.75dp) fixed shift down
+            PinKeypad(onKey = viewModel::onPinKey, modifier = Modifier.padding(top = 48.dp)) // +2mm, +2.5mm, then another +3mm (≈18.9dp) fixed shift down — total ≈7.5mm from original
 
             Box(modifier = Modifier.weight(0.62f))
         }
