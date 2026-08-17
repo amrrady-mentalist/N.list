@@ -126,7 +126,7 @@ private val ClockFontFamily = FontFamily(Font(R.font.clock_numerals))
 // app's font-preview tool (unknown unit, and many of those auto-shrink text
 // to fit regardless of the number shown), so build, look at it on-device,
 // and tell me to push it up or down; same for stretch.
-private val ClockSize = 316.sp // 351sp - 10%
+private val ClockSize = 284.sp // 316sp - 10%
 private const val ClockStretch = 1f
 
 @Composable
@@ -137,7 +137,7 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
     LaunchedEffect(Unit) {
         while (true) {
             val now = Date()
-            time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
+            time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(now)
             date = SimpleDateFormat("EEE MMM d", Locale.getDefault()).format(now)
             kotlinx.coroutines.delay(15_000)
         }
