@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -124,6 +125,15 @@ private fun BlackoutScreen(onDoubleTap: () -> Unit) {
  */
 private val ClockFontFamily = FontFamily(Font(R.font.clock_numerals))
 
+// Same two knobs Samsung/OEM Always-On-Display clock customization exposes:
+// "Size" (overall font size) and "Stretch" (a vertical-only scale that makes
+// the digits taller/more elongated without changing their width — it's just
+// a non-uniform scale applied to the rendered text, not a different font).
+// Tune these two numbers directly to match your device's look; 1f stretch
+// means normal proportions, higher values pull the digits taller.
+private val ClockSize = 84.sp
+private const val ClockStretch = 1.2f
+
 @Composable
 private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
     var time by remember { mutableStateOf("") }
@@ -187,12 +197,19 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
                         colors = listOf(Color.White, Color.White.copy(alpha = 0.62f))
                     )
                 ),
-                fontSize = 84.sp,
+                fontSize = ClockSize,
                 fontFamily = ClockFontFamily,
                 letterSpacing = (-0.5).sp,
                 maxLines = 1,
                 softWrap = false,
-                modifier = Modifier.padding(top = 2.dp)
+                // "Stretch" — a vertical-only scale, drawn taller without
+                // getting wider. Scaling is a draw-time transform, so it
+                // doesn't change the space this Text reserves in the
+                // Column; a bit of extra top padding below keeps the
+                // stretched glyphs from crowding the date above.
+                modifier = Modifier
+                    .padding(top = 10.dp)
+                    .scale(scaleX = 1f, scaleY = ClockStretch)
             )
         }
     }
