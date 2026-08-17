@@ -199,7 +199,7 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
             // stuck to the bottom edge.
             Box(modifier = Modifier.weight(0.38f))
 
-            PinKeypad(onKey = viewModel::onPinKey)
+            PinKeypad(onKey = viewModel::onPinKey, modifier = Modifier.padding(top = 13.dp)) // +2mm (≈12.6dp) fixed shift down
 
             Box(modifier = Modifier.weight(0.62f))
         }
@@ -271,7 +271,7 @@ private fun PinDotsRow(filledCount: Int) {
 }
 
 @Composable
-private fun PinKeypad(onKey: (String) -> Unit) {
+private fun PinKeypad(onKey: (String) -> Unit, modifier: Modifier = Modifier) {
     // The web app uses a fixed pixel size for each key (68px) and grid
     // gap (18px row / 26px column) — not a percentage of screen width.
     // Keys are fixed-size circles in a plain Row/Column grid rather than a
@@ -282,7 +282,7 @@ private fun PinKeypad(onKey: (String) -> Unit) {
     // added space is inserted between rows below row 1, not above it —
     // row 1 stays anchored in place and rows 2-4 shift further down,
     // never up.
-    val keySize = 62.dp
+    val keySize = 68.dp // 62dp + 1mm (≈6.3dp) — lands almost exactly on the web app's own 68px key size
     val rows = listOf(
         listOf("1", "2", "3"),
         listOf("4", "5", "6"),
@@ -302,6 +302,7 @@ private fun PinKeypad(onKey: (String) -> Unit) {
     }
 
     Column(
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(28.dp), // red lines: +2mm (≈12.6dp) over the 15dp baseline — this is the ROW gap
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
