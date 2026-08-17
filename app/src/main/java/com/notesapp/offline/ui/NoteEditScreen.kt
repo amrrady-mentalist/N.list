@@ -255,7 +255,7 @@ fun NoteEditScreen(
                         Image(
                             bitmap = bmp.asImageBitmap(),
                             contentDescription = "Drawing",
-                            contentScale = ContentScale.Crop,
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(imageHeight)
