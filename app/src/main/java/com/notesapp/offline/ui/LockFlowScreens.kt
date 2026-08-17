@@ -131,7 +131,7 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
                     }
                 )
             },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.TopCenter
     ) {
         LockBackground(
             path = backgroundPath,
@@ -142,11 +142,12 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
             )
         )
         // iOS-style Lock Screen clock: bare text directly on the wallpaper
-        // (no glass card behind it), a small date above, and a very large,
-        // ultra-thin time that stretches most of the screen's width — the
-        // look from the reference screenshot, minus the photo depth/subject
-        // cutout effect (that's a separate, much bigger feature).
+        // (no glass card behind it), anchored near the top like Apple's —
+        // not centered on the whole screen — with a contained width (not
+        // stretched edge-to-edge) and enough stroke weight to still read as
+        // solid glyphs rather than hollow outlines.
         Column(
+            modifier = Modifier.padding(top = 76.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -158,9 +159,9 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
             Text(
                 text = time,
                 color = Color.White,
-                fontSize = 108.sp,
-                fontWeight = FontWeight.Thin,
-                letterSpacing = (-2).sp,
+                fontSize = 84.sp,
+                fontWeight = FontWeight.ExtraLight,
+                letterSpacing = (-0.5).sp,
                 maxLines = 1,
                 softWrap = false,
                 modifier = Modifier.padding(top = 2.dp)
