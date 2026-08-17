@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,9 +41,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,6 +56,7 @@ import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.ForceListEngine
 import com.notesapp.offline.data.MagicEffect
 import com.notesapp.offline.data.MagicRepository
+import com.notesapp.offline.data.Note
 import com.notesapp.offline.ui.theme.AccentA
 import com.notesapp.offline.ui.theme.AccentB
 import com.notesapp.offline.ui.theme.Danger
@@ -69,6 +74,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun EffectEditorScreen(
     repo: MagicRepository,
+    notesViewModel: NotesViewModel,
     effectId: String,
     isDarkTheme: Boolean,
     onBack: () -> Unit,
@@ -164,6 +170,34 @@ fun EffectEditorScreen(
                                 val turningOn = !isActive
                                 repo.setActiveEffect(if (turningOn) current.id else null)
                                 isActive = turningOn
+
+                                // Let a List Force effect's plain item list
+                                // show up as a note the instant it's turned
+                                // on, so it can be shown to a spectator
+                                // before the PIN force ever happens. Reuses
+                                // the same linked note the PIN-resolve flow
+                                // later overwrites in place with the forced
+                                // order, so activating never creates a
+                                // duplicate — the same note just gets its
+                                // content replaced when the trick resolves.
+                                if (turningOn && current.type == EffectType.LIST) {
+                                    val plain = ForceListEngine.actualItems(current.items)
+                                    if (plain.isNotEmpty()) {
+                                        val numbered = plain.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
+                                        val existing = current.linkedNoteId?.let { notesViewModel.getNote(it) }
+                                        val note = (existing ?: Note(magicEffectId = current.id)).copy(
+                                            title = current.title,
+                                            body = numbered,
+                                            checklist = emptyList(),
+                                            pinned = true,
+                                            archived = false
+                                        )
+                                        notesViewModel.save(note)
+                                        if (existing == null) {
+                                            persist(current.copy(linkedNoteId = note.id))
+                                        }
+                                    }
+                                }
                             }
                         }
                         .padding(horizontal = 16.dp, vertical = 9.dp)
@@ -339,11 +373,26 @@ private fun GlassInput(
     minHeight: androidx.compose.ui.unit.Dp = 0.dp,
     singleLine: Boolean = true
 ) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = minHeight)
             .glassPanel(radius = GlassRadius.sm, tint = fgColor)
+            // For multi-line fields, the BasicTextField itself only
+            // measures as tall as its current text — one line when empty —
+            // so most of this visually tall box wasn't actually clickable.
+            // This catches taps anywhere else in the box and focuses the
+            // field directly; taps that land on the field's own (small)
+            // bounds are handled by it first, same as before.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            }
             .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
         if (value.isEmpty()) {
@@ -355,7 +404,9 @@ private fun GlassInput(
             singleLine = singleLine,
             textStyle = TextStyle(color = fgColor, fontSize = 15.sp, lineHeight = 24.sp),
             cursorBrush = SolidColor(fgColor),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
         )
     }
 }
