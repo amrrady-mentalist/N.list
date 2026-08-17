@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -330,19 +331,29 @@ private fun PinKeypad(onKey: (String) -> Unit, modifier: Modifier = Modifier) {
                             Box(
                                 modifier = Modifier
                                     .size(keySize)
+                                    // Soft ambient halo that sits behind the circle and
+                                    // bleeds outside it — same diffuse radial-light look
+                                    // as the torch button reference. Always present at a
+                                    // low level, brightens further on tap.
+                                    .drawBehind {
+                                        val haloRadius = size.minDimension * (0.95f + 0.35f * glowAlpha)
+                                        drawCircle(
+                                            brush = Brush.radialGradient(
+                                                colors = listOf(
+                                                    Color.White.copy(alpha = 0.16f + 0.22f * glowAlpha),
+                                                    Color.White.copy(alpha = 0.05f + 0.09f * glowAlpha),
+                                                    Color.Transparent
+                                                ),
+                                                center = center,
+                                                radius = haloRadius
+                                            ),
+                                            radius = haloRadius,
+                                            center = center
+                                        )
+                                    }
                                     .clip(CircleShape)
                                     .background(Color.White.copy(alpha = 0.10f + 0.10f * glowAlpha))
                                     .border(1.dp, Color.White.copy(alpha = 0.14f + 0.30f * glowAlpha), CircleShape)
-                                    .then(
-                                        if (glowAlpha > 0f) {
-                                            Modifier.background(
-                                                androidx.compose.ui.graphics.Brush.radialGradient(
-                                                    listOf(Color.White.copy(alpha = 0.18f * glowAlpha), Color.Transparent)
-                                                ),
-                                                CircleShape
-                                            )
-                                        } else Modifier
-                                    )
                                     .pointerInput(Unit) {
                                         detectTapGestures(onTap = {
                                             glowingKey = key
