@@ -33,12 +33,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.DeviceFontFamilyName
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.notesapp.offline.R
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -107,11 +107,22 @@ private fun BlackoutScreen(onDoubleTap: () -> Unit) {
     )
 }
 
-/** Android ships a narrower, tighter-set "condensed light" cut of the system
- *  font (no bundled font file needed) — much closer to SF Pro Display's
- *  numeral proportions than default Roboto, which renders digits wide and
- *  round and sits them far apart even at negative letter-spacing. */
-private val ClockFontFamily = FontFamily(Font(DeviceFontFamilyName("sans-serif-condensed-light")))
+/** Android's built-in system font aliases (Roboto Condensed under the hood)
+ *  turned out to still be visibly wider and rounder than SF Pro's numerals,
+ *  even at "condensed light". A real bundled font file is needed to get
+ *  close — this app doesn't have network access to fetch one automatically,
+ *  so it has to be added by hand. To finish this:
+ *    1. Get "Inter" (free, SIL Open Font License — https://fonts.google.com/specimen/Inter),
+ *       specifically the Thin or ExtraLight static weight. Inter is the
+ *       closest freely-licensed match to SF Pro's proportions; SF Pro
+ *       itself can't be bundled here — Apple's license restricts it to
+ *       software built for Apple's own platforms.
+ *    2. Rename the file to clock_numerals.ttf
+ *    3. Drop it in app/src/main/res/font/clock_numerals.ttf
+ *  Once that file exists, this compiles and the clock picks it up — no
+ *  other code changes needed.
+ */
+private val ClockFontFamily = FontFamily(Font(R.font.clock_numerals))
 
 @Composable
 private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
