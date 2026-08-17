@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -103,6 +104,11 @@ fun EffectEditorScreen(
             .fillMaxSize()
             .background(bgColor)
             .statusBarsPadding()
+            // Without this, the keyboard just overlaps the bottom of the
+            // screen instead of the layout shrinking to make room for it —
+            // this is what was hiding the last field(s) until the keyboard
+            // was dismissed.
+            .imePadding()
     ) {
         Row(
             modifier = Modifier
