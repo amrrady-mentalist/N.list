@@ -192,9 +192,16 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
                 }
             }
 
-            Box(modifier = Modifier.weight(1f))
+            // Two weighted spacers (rather than one large one that only
+            // sits above the keypad) pull the keypad up into the middle of
+            // the screen instead of pinning it to the very bottom — matches
+            // where it's meant to sit rather than reading as an afterthought
+            // stuck to the bottom edge.
+            Box(modifier = Modifier.weight(0.38f))
 
             PinKeypad(onKey = viewModel::onPinKey)
+
+            Box(modifier = Modifier.weight(0.62f))
         }
     }
 }
@@ -267,13 +274,10 @@ private fun PinDotsRow(filledCount: Int) {
 private fun PinKeypad(onKey: (String) -> Unit) {
     // The web app uses a fixed pixel size for each key (68px) and grid
     // gap (18px row / 26px column) — not a percentage of screen width.
-    // The previous version used a stretchy LazyVerticalGrid with
-    // aspectRatio(1f) filling the full screen width, which is what made
-    // the keys balloon up so much larger than the original. This uses
-    // fixed-size circles in a plain Row/Column grid instead, so they stay
-    // the same size regardless of screen width — matching the web app's
-    // ~68dp keys, with the gap tightened down further per request (12dp
-    // row / 18dp column, vs. the web app's 18px / 26px).
+    // Keys are fixed-size circles in a plain Row/Column grid rather than a
+    // stretchy LazyVerticalGrid, so they stay the same size regardless of
+    // screen width. Gap is 15dp row / 22dp column — a bit tighter than the
+    // web app's 18px/26px, per request, but not as tight as the first pass.
     val keySize = 62.dp
     val rows = listOf(
         listOf("1", "2", "3"),
@@ -294,11 +298,11 @@ private fun PinKeypad(onKey: (String) -> Unit) {
     }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(15.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         rows.forEach { row ->
-            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
                 row.forEach { key ->
                     when (key) {
                         "empty" -> Box(modifier = Modifier.size(keySize))
