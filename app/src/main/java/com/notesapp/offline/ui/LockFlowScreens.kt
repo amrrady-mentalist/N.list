@@ -32,6 +32,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.DeviceFontFamilyName
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -103,6 +107,12 @@ private fun BlackoutScreen(onDoubleTap: () -> Unit) {
     )
 }
 
+/** Android ships a narrower, tighter-set "condensed light" cut of the system
+ *  font (no bundled font file needed) — much closer to SF Pro Display's
+ *  numeral proportions than default Roboto, which renders digits wide and
+ *  round and sits them far apart even at negative letter-spacing. */
+private val ClockFontFamily = FontFamily(Font(DeviceFontFamilyName("sans-serif-condensed-light")))
+
 @Composable
 private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
     var time by remember { mutableStateOf("") }
@@ -158,9 +168,16 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
             )
             Text(
                 text = time,
-                color = Color.White,
+                style = TextStyle(
+                    // Top-to-bottom fade instead of a flat fill — the depth
+                    // cue that reads as "glass"/light even without doing the
+                    // full photo-subject cutout effect.
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.White, Color.White.copy(alpha = 0.62f))
+                    )
+                ),
                 fontSize = 84.sp,
-                fontWeight = FontWeight.ExtraLight,
+                fontFamily = ClockFontFamily,
                 letterSpacing = (-0.5).sp,
                 maxLines = 1,
                 softWrap = false,
