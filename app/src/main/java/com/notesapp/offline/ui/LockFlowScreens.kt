@@ -199,7 +199,7 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
             // stuck to the bottom edge.
             Box(modifier = Modifier.weight(0.38f))
 
-            PinKeypad(onKey = viewModel::onPinKey, modifier = Modifier.padding(top = 48.dp)) // +2mm, +2.5mm, then another +3mm (≈18.9dp) fixed shift down — total ≈7.5mm from original
+            PinKeypad(onKey = viewModel::onPinKey, modifier = Modifier.padding(top = 54.dp)) // +2mm, +2.5mm, +3mm, then another +1mm (≈6.3dp) fixed shift down — total ≈8.5mm from original
 
             Box(modifier = Modifier.weight(0.62f))
         }
@@ -307,7 +307,7 @@ private fun PinKeypad(onKey: (String) -> Unit, modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         rows.forEach { row ->
-            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) { // yellow lines: +1mm (≈6.3dp) over the 22dp baseline — this is the COLUMN gap
+            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) { // yellow lines: was +1mm over 22dp baseline (28dp), now -1mm back down to 22dp — this is the COLUMN gap
                 row.forEach { key ->
                     when (key) {
                         "empty" -> Box(modifier = Modifier.size(keySize))
