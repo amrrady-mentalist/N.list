@@ -276,8 +276,11 @@ private fun PinKeypad(onKey: (String) -> Unit) {
     // gap (18px row / 26px column) — not a percentage of screen width.
     // Keys are fixed-size circles in a plain Row/Column grid rather than a
     // stretchy LazyVerticalGrid, so they stay the same size regardless of
-    // screen width. Gap is 15dp row / 22dp column — a bit tighter than the
-    // web app's 18px/26px, per request, but not as tight as the first pass.
+    // screen width. Gap is now 21dp row / 35dp column — the web app's
+    // 18px/26px, plus a further +1mm vertical / +2mm horizontal per
+    // request. Widening the horizontal (column) gap only grows the row
+    // symmetrically around its horizontal center — it has no effect on
+    // vertical position, so this can't shift the keypad up or down.
     val keySize = 62.dp
     val rows = listOf(
         listOf("1", "2", "3"),
@@ -298,11 +301,11 @@ private fun PinKeypad(onKey: (String) -> Unit) {
     }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(15.dp),
+        verticalArrangement = Arrangement.spacedBy(21.dp), // +1mm (≈6.3dp) over the previous 15dp
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         rows.forEach { row ->
-            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(35.dp)) { // +2mm (≈12.6dp) over the previous 22dp
                 row.forEach { key ->
                     when (key) {
                         "empty" -> Box(modifier = Modifier.size(keySize))
