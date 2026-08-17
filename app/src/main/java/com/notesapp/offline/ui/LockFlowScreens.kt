@@ -108,20 +108,12 @@ private fun BlackoutScreen(onDoubleTap: () -> Unit) {
     )
 }
 
-/** Android's built-in system font aliases (Roboto Condensed under the hood)
- *  turned out to still be visibly wider and rounder than SF Pro's numerals,
- *  even at "condensed light". A real bundled font file is needed to get
- *  close — this app doesn't have network access to fetch one automatically,
- *  so it has to be added by hand. To finish this:
- *    1. Get "Inter" (free, SIL Open Font License — https://fonts.google.com/specimen/Inter),
- *       specifically the Thin or ExtraLight static weight. Inter is the
- *       closest freely-licensed match to SF Pro's proportions; SF Pro
- *       itself can't be bundled here — Apple's license restricts it to
- *       software built for Apple's own platforms.
- *    2. Rename the file to clock_numerals.ttf
- *    3. Drop it in app/src/main/res/font/clock_numerals.ttf
- *  Once that file exists, this compiles and the clock picks it up — no
- *  other code changes needed.
+/** Custom clock typeface — currently expecting "Valcore", a bold poster-style
+ *  numeral font. Font resources are matched by filename (without extension),
+ *  so both .ttf and .otf work the same way here — no code change needed
+ *  between them, just drop the file in as:
+ *    app/src/main/res/font/clock_numerals.otf
+ *  (or .ttf, whichever you have — keep the base name "clock_numerals").
  */
 private val ClockFontFamily = FontFamily(Font(R.font.clock_numerals))
 
@@ -129,10 +121,13 @@ private val ClockFontFamily = FontFamily(Font(R.font.clock_numerals))
 // "Size" (overall font size) and "Stretch" (a vertical-only scale that makes
 // the digits taller/more elongated without changing their width — it's just
 // a non-uniform scale applied to the rendered text, not a different font).
-// Tune these two numbers directly to match your device's look; 1f stretch
-// means normal proportions, higher values pull the digits taller.
-private val ClockSize = 84.sp
-private const val ClockStretch = 1.2f
+// ClockSize below is a starting guess sized for a bold/wide poster font like
+// Valcore — there's no reliable way to carry over a size value from another
+// app's font-preview tool (unknown unit, and many of those auto-shrink text
+// to fit regardless of the number shown), so build, look at it on-device,
+// and tell me to push it up or down; same for stretch.
+private val ClockSize = 130.sp
+private const val ClockStretch = 1f
 
 @Composable
 private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
