@@ -137,7 +137,7 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
     LaunchedEffect(Unit) {
         while (true) {
             val now = Date()
-            time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(now)
+            time = SimpleDateFormat("h:mm", Locale.getDefault()).format(now)
             date = SimpleDateFormat("EEE MMM d", Locale.getDefault()).format(now)
             kotlinx.coroutines.delay(15_000)
         }
