@@ -364,7 +364,7 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
                                             totalDx > 0 -> totalDx * 0.55f
                                             else -> totalDx
                                         }
-                                        offsetAnim.snapTo(baseOffset + resisted)
+                                        scope.launch { offsetAnim.snapTo(baseOffset + resisted) }
 
                                         topBarText = if (resisted < 0 && canForward) {
                                             val progress = (abs(resisted) / pageWidthPx).coerceAtMost(1f)
