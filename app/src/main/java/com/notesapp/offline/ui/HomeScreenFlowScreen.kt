@@ -48,13 +48,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.notesapp.offline.R
+import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -609,8 +609,20 @@ private fun HsAppIcon(app: HsDecoyApp, overridePath: String?) {
 
 @Composable
 private fun HsNotesIcon(iconPath: String?) {
+    val context = LocalContext.current
     val bmp = remember(iconPath) {
         iconPath?.let { runCatching { android.graphics.BitmapFactory.decodeFile(it) }.getOrNull() }
+            // Falls back to the app's own real launcher icon — a sensible
+            // default since this button opens the real app. ic_launcher is
+            // an adaptive-icon XML (background layer + foreground layer),
+            // which painterResource()/Image() can't load directly — it
+            // only supports VectorDrawables and raster assets (PNG/JPG/
+            // WEBP). Going through PackageManager instead always returns a
+            // single flattened Bitmap, regardless of the icon's format.
+            ?: runCatching {
+                context.packageManager.getApplicationIcon(context.packageName)
+                    .toBitmap()
+            }.getOrNull()
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
@@ -622,15 +634,6 @@ private fun HsNotesIcon(iconPath: String?) {
         ) {
             if (bmp != null) {
                 Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            } else {
-                // Falls back to the app's own real launcher icon — a
-                // sensible default since this button opens the real app.
-                Image(
-                    painterResource(R.mipmap.ic_launcher),
-                    null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
             }
         }
         Spacer(Modifier.height(4.dp))
