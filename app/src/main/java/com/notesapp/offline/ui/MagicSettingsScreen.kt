@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,9 +43,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,18 +67,9 @@ import java.io.File
 /**
  * The hidden "Magic Settings" screen — direct functional + visual port of
  * the web app's #magicSettings panel: Lock Method, the classic lock's
- * background photo, and the Effects list (with the same glass-card /
+ * background photo, the Home Screen disguise's wallpaper/Notes-icon/decoy
+ * app customization, and the Effects list (with the same glass-card /
  * ACTIVE-pill styling as the original, pulled from its CSS).
- *
- * Scope note: this covers everything needed to configure and run word/list
- * effects end to end, plus a real, working lock-screen background for the
- * classic PIN flow. It does NOT (yet) implement the web app's "Home
- * Screen" disguise mode itself — the fake home screen grid, its 3x3
- * dial-pad gesture, wallpaper, or the ~30-app icon-override list are a
- * separate, much larger feature that doesn't exist anywhere in the native
- * app yet. Lock Method still lets you pick "Home Screen" and the choice is
- * saved, but until that mode is built, unlocking will fall back to the
- * classic PIN flow either way.
  */
 @Composable
 fun MagicSettingsScreen(
@@ -89,6 +85,7 @@ fun MagicSettingsScreen(
 
     var store by remember { mutableStateOf(MagicStore()) }
     var loaded by remember { mutableStateOf(false) }
+    var decoyAppsExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         store = repo.load()
@@ -112,6 +109,33 @@ fun MagicSettingsScreen(
                 }
             }
         }
+    }
+
+    // Single shared picker for every Home Screen-mode image slot (the
+    // wallpaper, the disguised Notes icon, and each decoy app's icon) —
+    // `pendingIconTarget` says which one the next result should apply to.
+    // "wallpaper" and "notes" are the two fixed slots; anything else is
+    // taken as the decoy app name being re-skinned.
+    var pendingIconTarget by remember { mutableStateOf<String?>(null) }
+    val hsIconPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val target = pendingIconTarget
+        pendingIconTarget = null
+        if (uri != null && target != null) {
+            scope.launch {
+                val path = copyImageToInternal(context, uri, repo.mediaDir, "hs_${target}")
+                if (path != null) {
+                    when (target) {
+                        "wallpaper" -> persist(store.copy(homeWallpaperPath = path))
+                        "notes" -> persist(store.copy(notesIconPath = path))
+                        else -> persist(store.copy(appIconOverrides = store.appIconOverrides + (target to path)))
+                    }
+                }
+            }
+        }
+    }
+    fun pickHsIcon(target: String) {
+        pendingIconTarget = target
+        hsIconPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
 
     if (!loaded) return
@@ -180,15 +204,65 @@ fun MagicSettingsScreen(
                     }
 
                     if (store.lockMode == LockMode.HOME_SCREEN) {
+                        SectionLabel("Home screen wallpaper", fgColor, topPadding = 20.dp)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            PhotoThumb(path = store.homeWallpaperPath, fgColor = fgColor)
+                            GlassPill("Change photo", fgColor) { pickHsIcon("wallpaper") }
+                        }
+
+                        SectionLabel("Disguised Notes icon", fgColor, topPadding = 20.dp)
                         Text(
-                            "Home Screen disguise mode isn't built yet — unlocking will use the classic PIN flow until it is.",
+                            "This is the icon on the fake home screen's last page that actually opens your real notes.",
                             color = fgColor.copy(alpha = 0.34f),
                             fontSize = 12.sp,
                             lineHeight = 17.sp,
-                            modifier = Modifier.padding(top = 10.dp)
+                            modifier = Modifier.padding(bottom = 10.dp)
                         )
-                    }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            PhotoThumb(path = store.notesIconPath, fgColor = fgColor)
+                            GlassPill("Change icon", fgColor) { pickHsIcon("notes") }
+                        }
 
+                        SectionLabel("Decoy apps", fgColor, topPadding = 20.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { decoyAppsExpanded = !decoyAppsExpanded },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Rename or re-skin any of the ${homeScreenDecoyApps.size} filler apps shown around the disguised Notes icon.",
+                                color = fgColor.copy(alpha = 0.34f),
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(
+                                if (decoyAppsExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = if (decoyAppsExpanded) "Collapse" else "Expand",
+                                tint = fgColor.copy(alpha = 0.56f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (store.lockMode == LockMode.HOME_SCREEN && decoyAppsExpanded) {
+                items(homeScreenDecoyApps, key = { it.name }) { app ->
+                    DecoyAppRow(
+                        app = app,
+                        iconPath = store.appIconOverrides[app.name],
+                        displayName = store.appNameOverrides[app.name] ?: app.name,
+                        fgColor = fgColor,
+                        onPickIcon = { pickHsIcon(app.name) },
+                        onNameChange = { newName ->
+                            persist(store.copy(appNameOverrides = store.appNameOverrides + (app.name to newName)))
+                        },
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                     SectionLabel("Lock screen background", fgColor, topPadding = 20.dp)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         PhotoThumb(path = store.lockBackgroundPath, fgColor = fgColor)
@@ -332,6 +406,55 @@ private fun PhotoThumb(path: String?, fgColor: Color) {
         } else {
             Icon(Icons.Filled.Image, contentDescription = null, tint = fgColor.copy(alpha = 0.34f))
         }
+    }
+}
+
+/** One row in the (expandable) Decoy Apps list — a small icon thumbnail
+ *  the user can tap to re-skin, plus an editable name field, mirroring
+ *  the same icon/rename controls the Notes-icon and wallpaper slots use. */
+@Composable
+private fun DecoyAppRow(
+    app: HsDecoyApp,
+    iconPath: String?,
+    displayName: String,
+    fgColor: Color,
+    onPickIcon: () -> Unit,
+    onNameChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bmp = remember(iconPath) {
+        iconPath?.let { runCatching { android.graphics.BitmapFactory.decodeFile(it) }.getOrNull() }
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .glassPanel(radius = GlassRadius.md, tint = fgColor)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(if (bmp != null) Color.White else app.color)
+                .clickable(onClick = onPickIcon),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bmp != null) {
+                Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                Text(displayName.take(2).uppercase(), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        BasicTextField(
+            value = displayName,
+            onValueChange = onNameChange,
+            textStyle = TextStyle(color = fgColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+            cursorBrush = SolidColor(fgColor),
+            singleLine = true,
+            modifier = Modifier.weight(1f).padding(horizontal = 14.dp)
+        )
+        GlassPill("Icon", fgColor, onClick = onPickIcon)
     }
 }
 
