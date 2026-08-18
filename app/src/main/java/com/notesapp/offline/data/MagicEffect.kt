@@ -69,7 +69,9 @@ data class MagicStore(
     /** Path to a copied-in override icon for the notes app itself, in home-screen mode. */
     val notesIconPath: String? = null,
     /** Fake-app key (e.g. "phone", "messages") -> overridden icon file path. */
-    val appIconOverrides: Map<String, String> = emptyMap()
+    val appIconOverrides: Map<String, String> = emptyMap(),
+    /** Fake-app original name -> overridden display name shown on the fake home screen. */
+    val appNameOverrides: Map<String, String> = emptyMap()
 ) {
     val activeEffect: MagicEffect? get() = effects.firstOrNull { it.id == activeEffectId }
 }
