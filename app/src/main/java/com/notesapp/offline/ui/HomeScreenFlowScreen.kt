@@ -172,6 +172,16 @@ private fun buildHsPages(totalPages: Int): List<HsPage> {
         val cells = mutableMapOf<Pair<Int, Int>, HsCellContent>()
         val widget: HsWidget
         when {
+            // totalPages-1 must win over the p==1/p==0 shortcuts whenever
+            // they'd collide (i.e. totalPages is 2 or 3) — otherwise the
+            // final page's Notes icon silently never gets placed at all.
+            p == totalPages - 1 -> {
+                widget = HsWidget.NONE
+                for (i in 0 until 12) {
+                    val cell = (i / 4) to (i % 4)
+                    cells[cell] = if (i == 9) HsCellContent.Notes else HsCellContent.App(nextApp())
+                }
+            }
             p == 0 -> {
                 widget = HsWidget.SEARCH
                 for (i in 0 until 16) cells[(i / 4 + 2) to (i % 4)] = HsCellContent.App(nextApp())
@@ -179,13 +189,6 @@ private fun buildHsPages(totalPages: Int): List<HsPage> {
             p == 1 -> {
                 widget = HsWidget.CLOCK
                 for (i in 0 until 20) cells[(i / 4 + 1) to (i % 4)] = HsCellContent.App(nextApp())
-            }
-            p == totalPages - 1 -> {
-                widget = HsWidget.NONE
-                for (i in 0 until 12) {
-                    val cell = (i / 4) to (i % 4)
-                    cells[cell] = if (i == 9) HsCellContent.Notes else HsCellContent.App(nextApp())
-                }
             }
             else -> {
                 widget = HsWidget.NONE
@@ -236,6 +239,7 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
     val wallpaperPath by viewModel.hsWallpaperPath.collectAsState()
     val notesIconPath by viewModel.hsNotesIconPath.collectAsState()
     val iconOverrides by viewModel.hsIconOverrides.collectAsState()
+    val nameOverrides by viewModel.hsNameOverrides.collectAsState()
     val requiredDigits by viewModel.hsRequiredDigits.collectAsState()
     val totalPages = requiredDigits + 1
 
@@ -299,7 +303,7 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
                 ) {
                     pages.forEach { page ->
                         Box(Modifier.width(pageWidthDp).fillMaxHeight()) {
-                            HsPageContent(page, notesIconPath, iconOverrides)
+                            HsPageContent(page, notesIconPath, iconOverrides, nameOverrides)
                         }
                     }
                 }
@@ -489,7 +493,7 @@ private fun HsBatteryIcon() {
 }
 
 @Composable
-private fun HsPageContent(page: HsPage, notesIconPath: String?, iconOverrides: Map<String, String>) {
+private fun HsPageContent(page: HsPage, notesIconPath: String?, iconOverrides: Map<String, String>, nameOverrides: Map<String, String>) {
     Column(Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
         for (row in 0 until 6) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
@@ -505,7 +509,11 @@ private fun HsPageContent(page: HsPage, notesIconPath: String?, iconOverrides: M
                     for (col in 0 until 4) {
                         Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                             when (val content = page.cells[row to col]) {
-                                is HsCellContent.App -> HsAppIcon(content.app, iconOverrides[content.app.name])
+                                is HsCellContent.App -> HsAppIcon(
+                                    content.app,
+                                    iconOverrides[content.app.name],
+                                    nameOverrides[content.app.name]
+                                )
                                 is HsCellContent.Notes -> HsNotesIcon(notesIconPath)
                                 null -> Unit
                             }
@@ -571,10 +579,11 @@ private fun HsClockWidget() {
 }
 
 @Composable
-private fun HsAppIcon(app: HsDecoyApp, overridePath: String?) {
+private fun HsAppIcon(app: HsDecoyApp, overridePath: String?, overrideName: String?) {
     val bmp = remember(overridePath) {
         overridePath?.let { runCatching { android.graphics.BitmapFactory.decodeFile(it) }.getOrNull() }
     }
+    val displayName = overrideName?.takeIf { it.isNotBlank() } ?: app.name
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
@@ -587,7 +596,7 @@ private fun HsAppIcon(app: HsDecoyApp, overridePath: String?) {
                 Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
             } else {
                 Text(
-                    app.name.take(2).uppercase(),
+                    displayName.take(2).uppercase(),
                     color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
@@ -596,7 +605,7 @@ private fun HsAppIcon(app: HsDecoyApp, overridePath: String?) {
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            app.name,
+            displayName,
             color = Color.White,
             fontSize = 10.sp,
             maxLines = 1,
