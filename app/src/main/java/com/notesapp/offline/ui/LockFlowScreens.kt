@@ -54,6 +54,7 @@ fun LockFlowHost(viewModel: LockFlowViewModel) {
         LockScreenState.BLACKOUT -> BlackoutScreen(onDoubleTap = viewModel::onBlackoutDoubleTap)
         LockScreenState.AMBIENT -> AmbientScreen(backgroundPath = backgroundPath, onSwipeUp = viewModel::onAmbientSwipeUp)
         LockScreenState.PIN -> PinScreen(viewModel, backgroundPath)
+        LockScreenState.HOME_SCREEN -> HomeScreenFlowScreen(viewModel)
     }
 }
 
