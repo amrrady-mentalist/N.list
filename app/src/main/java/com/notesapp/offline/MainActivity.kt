@@ -1,14 +1,24 @@
 package com.notesapp.offline
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -19,7 +29,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -81,6 +95,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        CrashLog.install(this)
         installSplashScreen()
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -91,17 +106,69 @@ class MainActivity : ComponentActivity() {
             val isDark = resolveDarkTheme(themeMode)
             NotesNativeTheme(darkTheme = isDark) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    NotesApp(
-                        notesViewModel = notesViewModel,
-                        lockFlowViewModel = lockFlowViewModel,
-                        magicRepo = magicRepo,
-                        isDarkTheme = isDark,
-                        onToggleTheme = {
-                            themeMode = if (isDark) ThemeMode.LIGHT else ThemeMode.DARK
-                            lifecycleScope.launch { themeRepo.save(themeMode) }
-                        }
-                    )
+                    // If the last session ended in a crash, show the report
+                    // instead of the app — this is the whole point of
+                    // CrashLog: readable diagnostics with no computer/adb
+                    // needed. Dismissing clears it and continues as normal.
+                    var crashReport by remember { mutableStateOf(CrashLog.read(this@MainActivity)) }
+                    val report = crashReport
+                    if (report != null) {
+                        CrashReportScreen(
+                            report = report,
+                            onDismiss = {
+                                CrashLog.clear(this@MainActivity)
+                                crashReport = null
+                            }
+                        )
+                    } else {
+                        NotesApp(
+                            notesViewModel = notesViewModel,
+                            lockFlowViewModel = lockFlowViewModel,
+                            magicRepo = magicRepo,
+                            isDarkTheme = isDark,
+                            onToggleTheme = {
+                                themeMode = if (isDark) ThemeMode.LIGHT else ThemeMode.DARK
+                                lifecycleScope.launch { themeRepo.save(themeMode) }
+                            }
+                        )
+                    }
                 }
+            }
+        }
+    }
+}
+
+/** Full-screen, selectable/copyable crash report — read it or copy it
+ *  straight from the phone, no adb or computer needed. */
+@Composable
+private fun CrashReportScreen(report: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    Box(Modifier.fillMaxSize().padding(16.dp)) {
+        Column(Modifier.fillMaxSize()) {
+            Text(
+                "App crashed last time — here's the report:",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Box(
+                Modifier
+                    .weight(1f)
+                    .padding(vertical = 12.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    report,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
+                )
+            }
+            Button(onClick = {
+                val clipboard = context.getSystemService(ClipboardManager::class.java)
+                clipboard?.setPrimaryClip(ClipData.newPlainText("Crash report", report))
+            }) {
+                Text("Copy to clipboard")
+            }
+            Button(onClick = onDismiss, modifier = Modifier.padding(top = 8.dp)) {
+                Text("Dismiss and continue")
             }
         }
     }
