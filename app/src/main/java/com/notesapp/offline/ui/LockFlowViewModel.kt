@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.ForceListEngine
+import com.notesapp.offline.data.LockMode
 import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NotesRepository
@@ -13,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-enum class LockScreenState { BLACKOUT, AMBIENT, PIN }
+enum class LockScreenState { BLACKOUT, AMBIENT, PIN, HOME_SCREEN }
 
 class LockFlowViewModel(
     private val notesRepo: NotesRepository,
@@ -34,6 +35,22 @@ class LockFlowViewModel(
      *  Settings — read fresh every time the flow (re)starts via reset(). */
     val lockBackgroundPath: StateFlow<String?> = _lockBackgroundPath.asStateFlow()
 
+    // ---- Home Screen disguise mode ----
+    private val _hsWallpaperPath = MutableStateFlow<String?>(null)
+    val hsWallpaperPath: StateFlow<String?> = _hsWallpaperPath.asStateFlow()
+
+    private val _hsNotesIconPath = MutableStateFlow<String?>(null)
+    val hsNotesIconPath: StateFlow<String?> = _hsNotesIconPath.asStateFlow()
+
+    private val _hsIconOverrides = MutableStateFlow<Map<String, String>>(emptyMap())
+    val hsIconOverrides: StateFlow<Map<String, String>> = _hsIconOverrides.asStateFlow()
+
+    private val _hsRequiredDigits = MutableStateFlow(2)
+    /** How many swipe-pages the fake home screen needs — one digit per
+     *  page, same rule the web app used: the longest configured Word-Force
+     *  out code, or the List-Force's item-count digit width, minimum 2. */
+    val hsRequiredDigits: StateFlow<Int> = _hsRequiredDigits.asStateFlow()
+
     fun onBlackoutDoubleTap() {
         _screen.value = LockScreenState.AMBIENT
     }
@@ -47,13 +64,44 @@ class LockFlowViewModel(
         _screen.value = LockScreenState.BLACKOUT
     }
 
+    /** The fake home screen's hidden "Lock" dock icon — double-tapping it
+     *  bails out of the disguise entirely (no PIN resolved, no note
+     *  touched) straight back to the real note list. Reuses the same
+     *  `unlocked` signal the successful-trick path uses since both cases
+     *  want the exact same navigation result. */
+    fun abortHomeScreenFlow() {
+        _unlocked.value = true
+    }
+
+    /** Called once the performer taps the disguised Notes icon on the fake
+     *  home screen's final page — feeds the digits collected via swipes
+     *  into the exact same resolvePin() the classic keypad uses. */
+    fun resolveHomeScreenPin(pin: String) {
+        resolvePin(pin)
+    }
+
     /** Re-arms the flow for another performance without restarting the app. */
     fun reset() {
         _pinDigits.value = ""
         _screen.value = LockScreenState.BLACKOUT
         _unlocked.value = false
         viewModelScope.launch {
-            _lockBackgroundPath.value = magicRepo.load().lockBackgroundPath
+            val store = magicRepo.load()
+            _lockBackgroundPath.value = store.lockBackgroundPath
+            _hsWallpaperPath.value = store.homeWallpaperPath
+            _hsNotesIconPath.value = store.notesIconPath
+            _hsIconOverrides.value = store.appIconOverrides
+
+            val fx = store.activeEffect
+            _hsRequiredDigits.value = when {
+                fx == null -> 2
+                fx.type == EffectType.LIST -> ForceListEngine.codeDigits(fx.items)
+                else -> (fx.outs.maxOfOrNull { it.code.length } ?: 2).coerceAtLeast(2)
+            }
+
+            if (store.lockMode == LockMode.HOME_SCREEN) {
+                _screen.value = LockScreenState.HOME_SCREEN
+            }
         }
     }
 
