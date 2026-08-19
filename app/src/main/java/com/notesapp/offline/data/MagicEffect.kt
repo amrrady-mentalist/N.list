@@ -71,7 +71,14 @@ data class MagicStore(
     /** Fake-app key (e.g. "phone", "messages") -> overridden icon file path. */
     val appIconOverrides: Map<String, String> = emptyMap(),
     /** Fake-app original name -> overridden display name shown on the fake home screen. */
-    val appNameOverrides: Map<String, String> = emptyMap()
+    val appNameOverrides: Map<String, String> = emptyMap(),
+    /** A real Android widget the user picked to sit in the top widget slot
+     *  on the fake home screen's first page (replaced the old hand-drawn
+     *  "Google search bar" look). Flattened ComponentName string, e.g.
+     *  "com.google.android.googlequicksearchbox/.SearchWidgetProvider". */
+    val homeWidgetProvider: String? = null,
+    /** The AppWidgetHost-allocated id bound to [homeWidgetProvider]. -1 = none picked. */
+    val homeWidgetId: Int = -1
 ) {
     val activeEffect: MagicEffect? get() = effects.firstOrNull { it.id == activeEffectId }
 }
