@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -712,10 +713,14 @@ private fun InstalledAppPickerDialog(
 ) {
     val context = LocalContext.current
     var apps by remember { mutableStateOf<List<InstalledAppEntry>>(emptyList()) }
+    var query by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         apps = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             queryLaunchableApps(context)
         }
+    }
+    val filtered = remember(apps, query) {
+        if (query.isBlank()) apps else apps.filter { it.label.contains(query, ignoreCase = true) }
     }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -734,11 +739,37 @@ private fun InstalledAppPickerDialog(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 10.dp)
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(fgColor.copy(alpha = 0.08f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    textStyle = TextStyle(color = fgColor, fontSize = 14.sp),
+                    cursorBrush = SolidColor(fgColor),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        if (query.isEmpty()) {
+                            Text("Search apps…", color = fgColor.copy(alpha = 0.4f), fontSize = 14.sp)
+                        }
+                        inner()
+                    }
+                )
+            }
+            Spacer(Modifier.height(10.dp))
             if (apps.isEmpty()) {
                 Text("Loading…", color = fgColor.copy(alpha = 0.5f), fontSize = 13.sp)
+            } else if (filtered.isEmpty()) {
+                Text("No apps match \"$query\"", color = fgColor.copy(alpha = 0.5f), fontSize = 13.sp)
             } else {
                 LazyColumn(modifier = Modifier.weight(1f)) {
-                    items(apps, key = { it.packageName }) { app ->
+                    items(filtered, key = { it.packageName }) { app ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
