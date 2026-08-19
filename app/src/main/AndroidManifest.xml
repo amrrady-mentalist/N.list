@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Needed on Android 11+ (API 30+) package visibility to actually see
+         other installed apps' launcher entries/icons — without this,
+         queryIntentActivities() silently returns almost nothing and the
+         "choose an app icon" picker would appear empty. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
