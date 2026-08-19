@@ -1,6 +1,7 @@
 package com.notesapp.offline.ui
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -28,7 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Image as ImageIcon
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -51,6 +53,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.core.graphics.drawable.toBitmap
 import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.LockMode
 import com.notesapp.offline.data.MagicEffect
@@ -117,25 +121,40 @@ fun MagicSettingsScreen(
     // "wallpaper" and "notes" are the two fixed slots; anything else is
     // taken as the decoy app name being re-skinned.
     var pendingIconTarget by remember { mutableStateOf<String?>(null) }
+    // When set, shows the small "Photos / An installed app" chooser for
+    // that target instead of jumping straight to the gallery.
+    var iconSourceChooserTarget by remember { mutableStateOf<String?>(null) }
+    // When set, shows the installed-apps list for that target.
+    var appPickerTarget by remember { mutableStateOf<String?>(null) }
+
+    fun applyIconPath(target: String, path: String) {
+        when (target) {
+            "wallpaper" -> persist(store.copy(homeWallpaperPath = path))
+            "notes" -> persist(store.copy(notesIconPath = path))
+            else -> persist(store.copy(appIconOverrides = store.appIconOverrides + (target to path)))
+        }
+    }
+
     val hsIconPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         val target = pendingIconTarget
         pendingIconTarget = null
         if (uri != null && target != null) {
             scope.launch {
                 val path = copyImageToInternal(context, uri, repo.mediaDir, "hs_${target}")
-                if (path != null) {
-                    when (target) {
-                        "wallpaper" -> persist(store.copy(homeWallpaperPath = path))
-                        "notes" -> persist(store.copy(notesIconPath = path))
-                        else -> persist(store.copy(appIconOverrides = store.appIconOverrides + (target to path)))
-                    }
-                }
+                if (path != null) applyIconPath(target, path)
             }
         }
     }
-    fun pickHsIcon(target: String) {
+    fun launchPhotosPicker(target: String) {
         pendingIconTarget = target
         hsIconPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+
+    /** Entry point every "Change icon"/"Icon" button calls — the wallpaper
+     *  slot has no meaningful "app icon" equivalent, so it skips the
+     *  chooser and goes straight to Photos. */
+    fun pickHsIcon(target: String) {
+        if (target == "wallpaper") launchPhotosPicker(target) else iconSourceChooserTarget = target
     }
 
     if (!loaded) return
@@ -334,6 +353,38 @@ fun MagicSettingsScreen(
             Icon(Icons.Filled.Add, contentDescription = "New effect", tint = Color(0xFF0A0A12))
         }
     }
+
+    // Small "where from?" chooser shown before any icon change.
+    iconSourceChooserTarget?.let { target ->
+        IconSourceChooserDialog(
+            fgColor = fgColor,
+            onPickPhotos = {
+                iconSourceChooserTarget = null
+                launchPhotosPicker(target)
+            },
+            onPickApp = {
+                iconSourceChooserTarget = null
+                appPickerTarget = target
+            },
+            onDismiss = { iconSourceChooserTarget = null }
+        )
+    }
+
+    // Full installed-apps list, shown after "An installed app" is chosen.
+    appPickerTarget?.let { target ->
+        InstalledAppPickerDialog(
+            fgColor = fgColor,
+            bgColor = bgColor,
+            onPicked = { packageName ->
+                appPickerTarget = null
+                scope.launch {
+                    val path = savePackageIconToInternal(context, packageName, repo.mediaDir, "hs_${target}")
+                    if (path != null) applyIconPath(target, path)
+                }
+            },
+            onDismiss = { appPickerTarget = null }
+        )
+    }
 }
 
 @Composable
@@ -404,7 +455,7 @@ private fun PhotoThumb(path: String?, fgColor: Color) {
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp))
             )
         } else {
-            Icon(Icons.Filled.Image, contentDescription = null, tint = fgColor.copy(alpha = 0.34f))
+            Icon(Icons.Filled.ImageIcon, contentDescription = null, tint = fgColor.copy(alpha = 0.34f))
         }
     }
 }
@@ -539,3 +590,155 @@ private suspend fun copyImageToInternal(context: Context, uri: Uri, dir: File, p
             }
         }.getOrNull()
     }
+
+/** Flattens an installed app's launcher icon (handles adaptive icons same
+ *  as the fake home screen's own Notes-icon fallback) and saves it as a
+ *  PNG under the app's own storage, same durability reasoning as
+ *  [copyImageToInternal] — the icon needs to survive independent of
+ *  whether the source app stays installed. */
+private suspend fun savePackageIconToInternal(context: Context, packageName: String, dir: File, prefix: String): String? =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        runCatching {
+            val bmp = context.packageManager.getApplicationIcon(packageName).toBitmap()
+            val dest = File(dir, "${prefix}_${System.currentTimeMillis()}.png")
+            dest.outputStream().use { out -> bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out) }
+            if (dest.exists() && dest.length() > 0L) dest.absolutePath else {
+                dest.delete()
+                null
+            }
+        }.getOrNull()
+    }
+
+/** One installed, launchable app — just enough to list and preview it. */
+private data class InstalledAppEntry(val packageName: String, val label: String, val icon: android.graphics.drawable.Drawable)
+
+/** Every app that shows up in a real launcher (has a MAIN/LAUNCHER
+ *  activity) — the same pool a user would recognize icons from. */
+private fun queryLaunchableApps(context: Context): List<InstalledAppEntry> {
+    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    val pm = context.packageManager
+    return pm.queryIntentActivities(intent, 0)
+        .distinctBy { it.activityInfo.packageName }
+        .map { info ->
+            InstalledAppEntry(
+                packageName = info.activityInfo.packageName,
+                label = info.loadLabel(pm).toString(),
+                icon = info.loadIcon(pm)
+            )
+        }
+        .sortedBy { it.label.lowercase() }
+}
+
+/** Small "where from?" step shown before every icon change — Photos (an
+ *  image from your gallery) or an icon borrowed from one of your already-
+ *  installed apps. True third-party icon-pack support (reading another
+ *  launcher's appfilter.xml) isn't implemented — these two cover the
+ *  common cases without that extra integration. */
+@Composable
+private fun IconSourceChooserDialog(
+    fgColor: Color,
+    onPickPhotos: () -> Unit,
+    onPickApp: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(if (fgColor == Color.White) Color(0xFF1C1C1E) else Color.White)
+                .padding(20.dp)
+        ) {
+            Text(
+                "Choose icon from",
+                color = fgColor,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 14.dp)
+            )
+            ChooserRow("Photos", "Pick any image from your gallery", fgColor, onPickPhotos)
+            Box(Modifier.padding(vertical = 6.dp))
+            ChooserRow("An installed app", "Borrow the icon of an app already on your phone", fgColor, onPickApp)
+        }
+    }
+}
+
+@Composable
+private fun ChooserRow(title: String, subtitle: String, fgColor: Color, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(12.dp)
+    ) {
+        Text(title, color = fgColor, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(subtitle, color = fgColor.copy(alpha = 0.5f), fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+    }
+}
+
+/** Full-screen searchable-by-scroll list of every launchable app, each
+ *  with its real icon — tapping one uses that icon for whichever slot
+ *  (wallpaper/notes/decoy app) triggered the picker. */
+@Composable
+private fun InstalledAppPickerDialog(
+    fgColor: Color,
+    bgColor: Color,
+    onPicked: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var apps by remember { mutableStateOf<List<InstalledAppEntry>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        apps = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            queryLaunchableApps(context)
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.8f)
+                .clip(RoundedCornerShape(20.dp))
+                .background(bgColor)
+                .padding(16.dp)
+        ) {
+            Text(
+                "Choose an app icon",
+                color = fgColor,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            if (apps.isEmpty()) {
+                Text("Loading…", color = fgColor.copy(alpha = 0.5f), fontSize = 13.sp)
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(apps, key = { it.packageName }) { app ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPicked(app.packageName) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Image(
+                                bitmap = remember(app.packageName) { app.icon.toBitmap().asImageBitmap() },
+                                contentDescription = null,
+                                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp))
+                            )
+                            Text(
+                                app.label,
+                                color = fgColor,
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(start = 14.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
