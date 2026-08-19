@@ -242,6 +242,29 @@ fun MagicSettingsScreen(
                             GlassPill("Change icon", fgColor) { pickHsIcon("notes") }
                         }
 
+                        SectionLabel("Dock apps", fgColor, topPadding = 20.dp)
+                        Text(
+                            "The 3 fake apps shown either side of the lock button at the bottom of every page.",
+                            color = fgColor.copy(alpha = 0.34f),
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            homeScreenDockApps.forEach { app ->
+                                DecoyAppRow(
+                                    app = app,
+                                    iconPath = store.appIconOverrides[app.name],
+                                    displayName = store.appNameOverrides[app.name] ?: app.name,
+                                    fgColor = fgColor,
+                                    onPickIcon = { pickHsIcon(app.name) },
+                                    onNameChange = { newName ->
+                                        persist(store.copy(appNameOverrides = store.appNameOverrides + (app.name to newName)))
+                                    }
+                                )
+                            }
+                        }
+
                         SectionLabel("Decoy apps", fgColor, topPadding = 20.dp)
                         Row(
                             modifier = Modifier.fillMaxWidth().clickable { decoyAppsExpanded = !decoyAppsExpanded },
