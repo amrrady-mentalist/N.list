@@ -287,18 +287,27 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
             ) {
                 val pageWidthPx = constraints.maxWidth.toFloat()
                 val pageHeightPx = constraints.maxHeight.toFloat()
-                val pageWidthDp = maxWidth
 
-                Row(
-                    Modifier
-                        .fillMaxHeight()
-                        .width(pageWidthDp * totalPages)
-                        .graphicsLayer { translationX = offsetAnim.value }
-                ) {
-                    pages.forEach { page ->
-                        Box(Modifier.width(pageWidthDp).fillMaxHeight()) {
-                            HsPageContent(page, notesIconPath, iconOverrides, nameOverrides)
-                        }
+                // Each page is its own full-size Box, positioned purely via
+                // graphicsLayer.translationX at draw time. This replaced an
+                // earlier Row(width = pageWidth * totalPages) approach: that
+                // Row asked to be 3 screens wide, but its parent
+                // (BoxWithConstraints, exact-width-constrained by
+                // .fillMaxWidth()) clamps any child's requested width back
+                // down to what it was given — so every page past the first
+                // got silently squeezed to ~zero width and simply never
+                // drew, even though its data (cells/widget) was always
+                // correct. translationX is a post-layout draw transform, not
+                // a measured size, so it isn't subject to that clamp: each
+                // page now measures at the full, unclamped viewport size and
+                // is just shifted into place visually.
+                pages.forEachIndexed { index, page ->
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { translationX = offsetAnim.value + index * pageWidthPx }
+                    ) {
+                        HsPageContent(page, notesIconPath, iconOverrides, nameOverrides)
                     }
                 }
 
@@ -381,17 +390,6 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
                 onLockDoubleTap = { viewModel.abortHomeScreenFlow() }
             )
         }
-
-        // TEMPORARY diagnostic — remove once the blank-pages issue is
-        // confirmed fixed. Shows what this page's data model actually
-        // contains, so a screenshot tells us whether the bug is in the
-        // data (buildHsPages) or purely in rendering.
-        Text(
-            "DEBUG page=$currentPage/${totalPages - 1} widget=${pages.getOrNull(currentPage)?.widget} cells=${pages.getOrNull(currentPage)?.cells?.size}",
-            color = Color.Yellow,
-            fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 50.dp)
-        )
     }
 }
 
