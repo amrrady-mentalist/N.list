@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,7 +56,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.graphics.drawable.toBitmap
+import com.notesapp.offline.data.HsWidgetHost
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -241,6 +244,8 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
     val notesIconPath by viewModel.hsNotesIconPath.collectAsState()
     val iconOverrides by viewModel.hsIconOverrides.collectAsState()
     val nameOverrides by viewModel.hsNameOverrides.collectAsState()
+    val widgetProvider by viewModel.hsWidgetProvider.collectAsState()
+    val widgetId by viewModel.hsWidgetId.collectAsState()
     val requiredDigits by viewModel.hsRequiredDigits.collectAsState()
     val totalPages = requiredDigits + 1
 
@@ -249,6 +254,16 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
     var pinDigits by remember(totalPages) { mutableStateOf("") }
     val offsetAnim = remember(totalPages) { Animatable(0f) }
     val scope = rememberCoroutineScope()
+
+    // Widgets only push view updates while their host is "listening" —
+    // tied to this screen's own composition lifecycle so it doesn't leak
+    // updates while the fake home screen isn't even on screen.
+    val widgetHostContext = LocalContext.current
+    DisposableEffect(Unit) {
+        val host = HsWidgetHost.get(widgetHostContext)
+        host.startListening()
+        onDispose { host.stopListening() }
+    }
 
     var realTime by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
@@ -308,7 +323,7 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
                             .fillMaxSize()
                             .graphicsLayer { translationX = offsetAnim.value + index * pageWidthPx }
                     ) {
-                        HsPageContent(page, notesIconPath, iconOverrides, nameOverrides)
+                        HsPageContent(page, notesIconPath, iconOverrides, nameOverrides, widgetProvider, widgetId)
                     }
                 }
 
@@ -504,14 +519,21 @@ private fun HsBatteryIcon() {
 }
 
 @Composable
-private fun HsPageContent(page: HsPage, notesIconPath: String?, iconOverrides: Map<String, String>, nameOverrides: Map<String, String>) {
+private fun HsPageContent(
+    page: HsPage,
+    notesIconPath: String?,
+    iconOverrides: Map<String, String>,
+    nameOverrides: Map<String, String>,
+    widgetProvider: String?,
+    widgetId: Int
+) {
     Column(Modifier.fillMaxSize().padding(horizontal = 10.dp)) {
         for (row in 0 until 6) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 if (row == 0 && page.widget != HsWidget.NONE) {
                     Box(Modifier.weight(4f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                         when (page.widget) {
-                            HsWidget.SEARCH -> HsSearchWidget()
+                            HsWidget.SEARCH -> HsRealWidget(widgetProvider, widgetId)
                             HsWidget.CLOCK -> HsClockWidget()
                             HsWidget.NONE -> Unit
                         }
@@ -537,73 +559,58 @@ private fun HsPageContent(page: HsPage, notesIconPath: String?, iconOverrides: M
 }
 
 @Composable
-private fun HsSearchWidget() {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .clip(RoundedCornerShape(100.dp))
-            .background(Color.White)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        GoogleGLogo(Modifier.size(22.dp))
-        Spacer(Modifier.width(12.dp))
-        Text("Search", color = Color(0xFF5F6368), fontSize = 16.sp, modifier = Modifier.weight(1f))
-        HsMicIcon()
+private fun HsRealWidget(providerFlat: String?, widgetId: Int) {
+    val context = LocalContext.current
+    if (providerFlat == null || widgetId < 0) {
+        // Nothing picked yet in Settings — an obvious placeholder beats
+        // silently rendering nothing.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("No widget selected", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
+        }
+        return
     }
-}
-
-/** Simplified but recognizably-colored Google "G" — the real logo's exact
- *  vector path is out of scope here, but the four brand colors arranged
- *  as concentric arcs plus the crossbar reads unmistakably as the same
- *  mark at this icon size. */
-@Composable
-private fun GoogleGLogo(modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val strokeW = size.width * 0.22f
-        val r = (size.minDimension - strokeW) / 2f
-        val c = Offset(size.width / 2f, size.height / 2f)
-        val topLeft = Offset(c.x - r, c.y - r)
-        val arcSize = Size(r * 2, r * 2)
-        drawArc(Color(0xFF4285F4), startAngle = -40f, sweepAngle = 180f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(strokeW, cap = StrokeCap.Butt))
-        drawArc(Color(0xFF34A853), startAngle = 140f, sweepAngle = 55f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(strokeW, cap = StrokeCap.Butt))
-        drawArc(Color(0xFFFBBC05), startAngle = 195f, sweepAngle = 55f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(strokeW, cap = StrokeCap.Butt))
-        drawArc(Color(0xFFEA4335), startAngle = 250f, sweepAngle = 50f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(strokeW, cap = StrokeCap.Butt))
-        // crossbar of the "G"
-        drawRect(Color(0xFF4285F4), topLeft = Offset(c.x - strokeW * 0.1f, c.y - strokeW / 2f), size = Size(r * 0.95f, strokeW))
+    val appWidgetManager = remember { android.appwidget.AppWidgetManager.getInstance(context) }
+    val info = remember(providerFlat) {
+        appWidgetManager.installedProviders.firstOrNull { it.provider.flattenToString() == providerFlat }
     }
-}
-
-@Composable
-private fun HsMicIcon() {
-    Canvas(Modifier.size(20.dp)) {
-        val w = size.width
-        val h = size.height
-        val blue = Color(0xFF4285F4)
-        drawRoundRect(
-            color = blue,
-            topLeft = Offset(w * 0.34f, h * 0.04f),
-            size = Size(w * 0.32f, h * 0.48f),
-            cornerRadius = CornerRadius(w * 0.16f, w * 0.16f)
-        )
-        drawArc(
-            color = blue,
-            startAngle = 0f,
-            sweepAngle = 180f,
-            useCenter = false,
-            topLeft = Offset(w * 0.14f, h * 0.30f),
-            size = Size(w * 0.72f, h * 0.5f),
-            style = Stroke(width = w * 0.08f, cap = StrokeCap.Round)
-        )
-        drawLine(
-            color = blue,
-            start = Offset(w * 0.5f, h * 0.80f),
-            end = Offset(w * 0.5f, h * 0.94f),
-            strokeWidth = w * 0.08f,
-            cap = StrokeCap.Round
-        )
+    if (info == null) {
+        // The provider app was uninstalled/changed since picking — same
+        // idea, an explicit note rather than a silent blank.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("Widget unavailable", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
+        }
+        return
     }
+    // Widgets are plain Android Views (RemoteViews-hosted), not Compose —
+    // AndroidView + AppWidgetHostView is the standard bridge. Height is
+    // driven by what the widget itself declares, capped to roughly what
+    // one grid row actually has room for — a widget asking for much more
+    // than that would visually spill into the row below since this slot
+    // doesn't scroll or reflow the grid around it.
+    val heightDp = info.minHeight.dp.coerceIn(40.dp, 110.dp)
+    AndroidView(
+        modifier = Modifier.fillMaxWidth().height(heightDp),
+        factory = { ctx ->
+            val host = HsWidgetHost.get(ctx)
+            host.createView(ctx, widgetId, info).apply {
+                setAppWidget(widgetId, info)
+            }
+        }
+    )
 }
 
 @Composable
@@ -652,7 +659,7 @@ private fun HsAppIcon(app: HsDecoyApp, overridePath: String?, overrideName: Stri
             Modifier
                 .size(52.dp)
                 .clip(RoundedCornerShape(13.dp))
-                .background(if (bmp != null) Color.White else app.color),
+                .background(if (bmp != null) Color.Transparent else app.color),
             contentAlignment = Alignment.Center
         ) {
             if (bmp != null) {
@@ -776,7 +783,7 @@ private fun DockIcon(app: HsDecoyApp, overridePath: String?, overrideName: Strin
         Modifier
             .size(56.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(if (bmp != null) Color.White else app.color)
+            .background(if (bmp != null) Color.Transparent else app.color)
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { onTap() })
             },
