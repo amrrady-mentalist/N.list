@@ -48,6 +48,12 @@ class LockFlowViewModel(
     private val _hsNameOverrides = MutableStateFlow<Map<String, String>>(emptyMap())
     val hsNameOverrides: StateFlow<Map<String, String>> = _hsNameOverrides.asStateFlow()
 
+    private val _hsWidgetProvider = MutableStateFlow<String?>(null)
+    val hsWidgetProvider: StateFlow<String?> = _hsWidgetProvider.asStateFlow()
+
+    private val _hsWidgetId = MutableStateFlow(-1)
+    val hsWidgetId: StateFlow<Int> = _hsWidgetId.asStateFlow()
+
     private val _hsRequiredDigits = MutableStateFlow(2)
     /** How many swipe-pages the fake home screen needs — one digit per
      *  page, same rule the web app used: the longest configured Word-Force
@@ -95,6 +101,8 @@ class LockFlowViewModel(
             _hsNotesIconPath.value = store.notesIconPath
             _hsIconOverrides.value = store.appIconOverrides
             _hsNameOverrides.value = store.appNameOverrides
+            _hsWidgetProvider.value = store.homeWidgetProvider
+            _hsWidgetId.value = store.homeWidgetId
 
             val fx = store.activeEffect
             _hsRequiredDigits.value = when {
