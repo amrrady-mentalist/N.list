@@ -170,6 +170,11 @@ fun MagicSettingsScreen(
     var pendingBindId by remember { mutableStateOf(-1) }
     var pendingConfigureProvider by remember { mutableStateOf<String?>(null) }
     var pendingConfigureId by remember { mutableStateOf(-1) }
+    // Some widgets' configure/customize screens are marked non-exported —
+    // only the system launcher (with special OS privileges) is allowed to
+    // launch them; a normal app gets a SecurityException. Shown to the
+    // user instead of letting the crash happen.
+    var widgetErrorMessage by remember { mutableStateOf<String?>(null) }
 
     val widgetConfigureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val id = pendingConfigureId
@@ -189,13 +194,20 @@ fun MagicSettingsScreen(
     fun finishWidgetBind(info: android.appwidget.AppWidgetProviderInfo, id: Int) {
         val configure = info.configure
         if (configure != null) {
-            pendingConfigureId = id
-            pendingConfigureProvider = info.provider.flattenToString()
             val intent = Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
                 component = configure
                 putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id)
             }
-            widgetConfigureLauncher.launch(intent)
+            try {
+                pendingConfigureId = id
+                pendingConfigureProvider = info.provider.flattenToString()
+                widgetConfigureLauncher.launch(intent)
+            } catch (e: SecurityException) {
+                pendingConfigureId = -1
+                pendingConfigureProvider = null
+                HsWidgetHost.get(context).deleteAppWidgetId(id)
+                widgetErrorMessage = "\"${runCatching { info.loadLabel(context.packageManager) }.getOrDefault("This widget")}\" can't be added — its setup screen is restricted to system launchers only, not regular apps. Try a different widget."
+            }
         } else {
             persist(store.copy(homeWidgetProvider = info.provider.flattenToString(), homeWidgetId = id))
         }
@@ -221,17 +233,28 @@ fun MagicSettingsScreen(
         // Most widgets from the same app you've already granted, or ones
         // that don't need special permission, bind immediately; anything
         // else needs one-time system consent via the intent below.
-        val boundImmediately = mgr.bindAppWidgetIdIfAllowed(id, info.provider)
+        val boundImmediately = try {
+            mgr.bindAppWidgetIdIfAllowed(id, info.provider)
+        } catch (e: SecurityException) {
+            false
+        }
         if (boundImmediately) {
             finishWidgetBind(info, id)
         } else {
-            pendingBindInfo = info
-            pendingBindId = id
-            val intent = Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
-                putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-                putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+            try {
+                pendingBindInfo = info
+                pendingBindId = id
+                val intent = Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
+                    putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                    putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+                }
+                widgetBindLauncher.launch(intent)
+            } catch (e: Exception) {
+                pendingBindInfo = null
+                pendingBindId = -1
+                host.deleteAppWidgetId(id)
+                widgetErrorMessage = "\"${runCatching { info.loadLabel(context.packageManager) }.getOrDefault("This widget")}\" couldn't be added. Try a different widget."
             }
-            widgetBindLauncher.launch(intent)
         }
     }
 
@@ -517,6 +540,28 @@ fun MagicSettingsScreen(
             onPicked = { info -> pickWidget(info) },
             onDismiss = { widgetPickerOpen = false }
         )
+    }
+
+    widgetErrorMessage?.let { message ->
+        Dialog(onDismissRequest = { widgetErrorMessage = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(bgColor)
+                    .padding(20.dp)
+            ) {
+                Text("Can't add this widget", color = fgColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    message,
+                    color = fgColor.copy(alpha = 0.6f),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
+                )
+                GlassPill("OK", fgColor) { widgetErrorMessage = null }
+            }
+        }
     }
 }
 
