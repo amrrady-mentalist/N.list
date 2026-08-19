@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -386,6 +387,8 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
 
             HsPageDots(totalPages, currentPage)
             HsDock(
+                iconOverrides = iconOverrides,
+                nameOverrides = nameOverrides,
                 onDummyTap = { /* no-op — decoy dock icons don't respond */ },
                 onLockDoubleTap = { viewModel.abortHomeScreenFlow() }
             )
@@ -427,7 +430,7 @@ private fun HsStatusBar(timeText: String) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(timeText, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
             HsSignalBars()
             HsWifiIcon()
             HsBatteryIcon()
@@ -437,7 +440,7 @@ private fun HsStatusBar(timeText: String) {
 
 @Composable
 private fun HsSignalBars() {
-    Canvas(Modifier.size(width = 14.dp, height = 10.dp)) {
+    Canvas(Modifier.size(width = 16.dp, height = 11.dp)) {
         val barW = size.width / 4.5f
         for (i in 0 until 4) {
             val h = size.height * (0.4f + 0.2f * i)
@@ -452,18 +455,25 @@ private fun HsSignalBars() {
 
 @Composable
 private fun HsWifiIcon() {
-    Canvas(Modifier.size(14.dp)) {
-        val c = Offset(size.width / 2, size.height * 0.85f)
+    // A proper 3-arc + dot WiFi glyph: arcs drawn top-down (outer to
+    // inner) around a shared bottom point, with Dp-scaled stroke width
+    // and round caps — the previous version used a raw 1.6px stroke
+    // (invisible/inconsistent across densities) and slightly wrong arc
+    // geometry, which is why it read as "off".
+    Canvas(Modifier.size(16.dp)) {
+        val strokeW = 1.7.dp.toPx()
+        val c = Offset(size.width / 2f, size.height * 0.80f)
+        drawCircle(color = Color.White, radius = 1.3.dp.toPx(), center = c)
         for (i in 1..3) {
-            val r = size.width * 0.28f * i
+            val r = size.width * 0.26f * i
             drawArc(
                 color = Color.White,
-                startAngle = 200f,
-                sweepAngle = 140f,
+                startAngle = 215f,
+                sweepAngle = 110f,
                 useCenter = false,
                 topLeft = Offset(c.x - r, c.y - r),
                 size = Size(r * 2, r * 2),
-                style = Stroke(width = 1.6f)
+                style = Stroke(width = strokeW, cap = StrokeCap.Round)
             )
         }
     }
@@ -531,16 +541,68 @@ private fun HsSearchWidget() {
     Row(
         Modifier
             .fillMaxWidth()
+            .height(48.dp)
             .clip(RoundedCornerShape(100.dp))
             .background(Color.White)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Canvas(Modifier.size(18.dp)) {
-            drawCircle(color = Color(0xFF4285F4), radius = size.minDimension / 2)
-        }
+        GoogleGLogo(Modifier.size(22.dp))
         Spacer(Modifier.width(12.dp))
-        Text("Search...", color = Color(0xFF5F6368), fontSize = 15.sp)
+        Text("Search", color = Color(0xFF5F6368), fontSize = 16.sp, modifier = Modifier.weight(1f))
+        HsMicIcon()
+    }
+}
+
+/** Simplified but recognizably-colored Google "G" — the real logo's exact
+ *  vector path is out of scope here, but the four brand colors arranged
+ *  as concentric arcs plus the crossbar reads unmistakably as the same
+ *  mark at this icon size. */
+@Composable
+private fun GoogleGLogo(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val strokeW = size.width * 0.22f
+        val r = (size.minDimension - strokeW) / 2f
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val topLeft = Offset(c.x - r, c.y - r)
+        val arcSize = Size(r * 2, r * 2)
+        drawArc(Color(0xFF4285F4), startAngle = -40f, sweepAngle = 180f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(strokeW, cap = StrokeCap.Butt))
+        drawArc(Color(0xFF34A853), startAngle = 140f, sweepAngle = 55f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(strokeW, cap = StrokeCap.Butt))
+        drawArc(Color(0xFFFBBC05), startAngle = 195f, sweepAngle = 55f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(strokeW, cap = StrokeCap.Butt))
+        drawArc(Color(0xFFEA4335), startAngle = 250f, sweepAngle = 50f, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(strokeW, cap = StrokeCap.Butt))
+        // crossbar of the "G"
+        drawRect(Color(0xFF4285F4), topLeft = Offset(c.x - strokeW * 0.1f, c.y - strokeW / 2f), size = Size(r * 0.95f, strokeW))
+    }
+}
+
+@Composable
+private fun HsMicIcon() {
+    Canvas(Modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        val blue = Color(0xFF4285F4)
+        drawRoundRect(
+            color = blue,
+            topLeft = Offset(w * 0.34f, h * 0.04f),
+            size = Size(w * 0.32f, h * 0.48f),
+            cornerRadius = CornerRadius(w * 0.16f, w * 0.16f)
+        )
+        drawArc(
+            color = blue,
+            startAngle = 0f,
+            sweepAngle = 180f,
+            useCenter = false,
+            topLeft = Offset(w * 0.14f, h * 0.30f),
+            size = Size(w * 0.72f, h * 0.5f),
+            style = Stroke(width = w * 0.08f, cap = StrokeCap.Round)
+        )
+        drawLine(
+            color = blue,
+            start = Offset(w * 0.5f, h * 0.80f),
+            end = Offset(w * 0.5f, h * 0.94f),
+            strokeWidth = w * 0.08f,
+            cap = StrokeCap.Round
+        )
     }
 }
 
@@ -654,7 +716,12 @@ private fun HsNotesIcon(iconPath: String?) {
 @Composable
 private fun HsPageDots(total: Int, current: Int) {
     Row(
-        Modifier.fillMaxWidth().height(20.dp),
+        Modifier
+            .fillMaxWidth()
+            // Equal breathing room above (from the icon grid) and below
+            // (to the dock) so the dots sit centered in that gap instead
+            // of hugging one side.
+            .padding(vertical = 14.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -672,7 +739,12 @@ private fun HsPageDots(total: Int, current: Int) {
 }
 
 @Composable
-private fun HsDock(onDummyTap: () -> Unit, onLockDoubleTap: () -> Unit) {
+private fun HsDock(
+    iconOverrides: Map<String, String>,
+    nameOverrides: Map<String, String>,
+    onDummyTap: () -> Unit,
+    onLockDoubleTap: () -> Unit
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -685,26 +757,36 @@ private fun HsDock(onDummyTap: () -> Unit, onLockDoubleTap: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        DockIcon(homeScreenDockApps[0], onDummyTap)
-        DockIcon(homeScreenDockApps[1], onDummyTap)
+        homeScreenDockApps.take(2).forEach { app ->
+            DockIcon(app, iconOverrides[app.name], nameOverrides[app.name], onDummyTap)
+        }
         DockLockIcon(onLockDoubleTap)
-        DockIcon(homeScreenDockApps[2], onDummyTap)
+        val third = homeScreenDockApps[2]
+        DockIcon(third, iconOverrides[third.name], nameOverrides[third.name], onDummyTap)
     }
 }
 
 @Composable
-private fun DockIcon(app: HsDecoyApp, onTap: () -> Unit) {
+private fun DockIcon(app: HsDecoyApp, overridePath: String?, overrideName: String?, onTap: () -> Unit) {
+    val bmp = remember(overridePath) {
+        overridePath?.let { runCatching { android.graphics.BitmapFactory.decodeFile(it) }.getOrNull() }
+    }
+    val displayName = overrideName?.takeIf { it.isNotBlank() } ?: app.name
     Box(
         Modifier
             .size(56.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(app.color)
+            .background(if (bmp != null) Color.White else app.color)
             .pointerInput(Unit) {
                 detectTapGestures(onTap = { onTap() })
             },
         contentAlignment = Alignment.Center
     ) {
-        Text(app.name.take(2).uppercase(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        if (bmp != null) {
+            Image(bmp.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        } else {
+            Text(displayName.take(2).uppercase(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
