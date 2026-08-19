@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.graphics.drawable.toBitmap
 import com.notesapp.offline.data.EffectType
+import com.notesapp.offline.data.HsWidgetHost
 import com.notesapp.offline.data.LockMode
 import com.notesapp.offline.data.MagicEffect
 import com.notesapp.offline.data.MagicRepository
@@ -159,6 +160,81 @@ fun MagicSettingsScreen(
         if (target == "wallpaper") launchPhotosPicker(target) else iconSourceChooserTarget = target
     }
 
+    // ---- Real Android widget picking (replaces the old hand-drawn
+    // "Google search bar" widget slot) ----
+    var widgetPickerOpen by remember { mutableStateOf(false) }
+    // Tracks an allocated-but-not-yet-bound widget id across the two-step
+    // bind → (optional) configure flow, so the activity-result callbacks
+    // below know what they're finishing.
+    var pendingBindInfo by remember { mutableStateOf<android.appwidget.AppWidgetProviderInfo?>(null) }
+    var pendingBindId by remember { mutableStateOf(-1) }
+    var pendingConfigureProvider by remember { mutableStateOf<String?>(null) }
+    var pendingConfigureId by remember { mutableStateOf(-1) }
+
+    val widgetConfigureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val id = pendingConfigureId
+        val provider = pendingConfigureProvider
+        pendingConfigureId = -1
+        pendingConfigureProvider = null
+        if (result.resultCode == android.app.Activity.RESULT_OK && id >= 0 && provider != null) {
+            persist(store.copy(homeWidgetProvider = provider, homeWidgetId = id))
+        } else if (id >= 0) {
+            // User backed out of the widget's own configure screen —
+            // release the id rather than leaving an orphaned half-bound
+            // widget hanging around.
+            HsWidgetHost.get(context).deleteAppWidgetId(id)
+        }
+    }
+
+    fun finishWidgetBind(info: android.appwidget.AppWidgetProviderInfo, id: Int) {
+        val configure = info.configure
+        if (configure != null) {
+            pendingConfigureId = id
+            pendingConfigureProvider = info.provider.flattenToString()
+            val intent = Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
+                component = configure
+                putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+            }
+            widgetConfigureLauncher.launch(intent)
+        } else {
+            persist(store.copy(homeWidgetProvider = info.provider.flattenToString(), homeWidgetId = id))
+        }
+    }
+
+    val widgetBindLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val info = pendingBindInfo
+        val id = pendingBindId
+        pendingBindInfo = null
+        pendingBindId = -1
+        if (result.resultCode == android.app.Activity.RESULT_OK && info != null && id >= 0) {
+            finishWidgetBind(info, id)
+        } else if (id >= 0) {
+            HsWidgetHost.get(context).deleteAppWidgetId(id)
+        }
+    }
+
+    fun pickWidget(info: android.appwidget.AppWidgetProviderInfo) {
+        widgetPickerOpen = false
+        val host = HsWidgetHost.get(context)
+        val id = host.allocateAppWidgetId()
+        val mgr = android.appwidget.AppWidgetManager.getInstance(context)
+        // Most widgets from the same app you've already granted, or ones
+        // that don't need special permission, bind immediately; anything
+        // else needs one-time system consent via the intent below.
+        val boundImmediately = mgr.bindAppWidgetIdIfAllowed(id, info.provider)
+        if (boundImmediately) {
+            finishWidgetBind(info, id)
+        } else {
+            pendingBindInfo = info
+            pendingBindId = id
+            val intent = Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
+                putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+            }
+            widgetBindLauncher.launch(intent)
+        }
+    }
+
     if (!loaded) return
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -229,6 +305,29 @@ fun MagicSettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             PhotoThumb(path = store.homeWallpaperPath, fgColor = fgColor)
                             GlassPill("Change photo", fgColor) { pickHsIcon("wallpaper") }
+                        }
+
+                        SectionLabel("Home screen widget", fgColor, topPadding = 20.dp)
+                        Text(
+                            "Any real widget from your phone — sits at the top of the first page, in place of the old built-in search bar.",
+                            color = fgColor.copy(alpha = 0.34f),
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            modifier = Modifier.padding(bottom = 10.dp)
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            GlassPill(
+                                if (store.homeWidgetProvider != null) "Change widget" else "Choose widget",
+                                fgColor
+                            ) { widgetPickerOpen = true }
+                            if (store.homeWidgetProvider != null) {
+                                GlassPill("Remove", fgColor) {
+                                    if (store.homeWidgetId >= 0) {
+                                        HsWidgetHost.get(context).deleteAppWidgetId(store.homeWidgetId)
+                                    }
+                                    persist(store.copy(homeWidgetProvider = null, homeWidgetId = -1))
+                                }
+                            }
                         }
 
                         SectionLabel("Disguised Notes icon", fgColor, topPadding = 20.dp)
@@ -410,6 +509,15 @@ fun MagicSettingsScreen(
             onDismiss = { appPickerTarget = null }
         )
     }
+
+    if (widgetPickerOpen) {
+        WidgetPickerDialog(
+            fgColor = fgColor,
+            bgColor = bgColor,
+            onPicked = { info -> pickWidget(info) },
+            onDismiss = { widgetPickerOpen = false }
+        )
+    }
 }
 
 @Composable
@@ -512,7 +620,7 @@ private fun DecoyAppRow(
             modifier = Modifier
                 .size(44.dp)
                 .clip(RoundedCornerShape(11.dp))
-                .background(if (bmp != null) Color.White else app.color)
+                .background(if (bmp != null) Color.Transparent else app.color)
                 .clickable(onClick = onPickIcon),
             contentAlignment = Alignment.Center
         ) {
@@ -797,3 +905,134 @@ private fun InstalledAppPickerDialog(
     }
 }
 
+
+/** One installed widget provider — enough to list and preview it. */
+private data class InstalledWidgetEntry(
+    val info: android.appwidget.AppWidgetProviderInfo,
+    val label: String,
+    val icon: android.graphics.drawable.Drawable?,
+    val hostAppLabel: String
+)
+
+private fun queryInstalledWidgets(context: Context): List<InstalledWidgetEntry> {
+    val mgr = android.appwidget.AppWidgetManager.getInstance(context)
+    val pm = context.packageManager
+    return mgr.installedProviders.mapNotNull { info ->
+        val hostAppLabel = runCatching {
+            pm.getApplicationLabel(pm.getApplicationInfo(info.provider.packageName, 0)).toString()
+        }.getOrDefault(info.provider.packageName)
+        InstalledWidgetEntry(
+            info = info,
+            label = runCatching { info.loadLabel(pm) }.getOrDefault(hostAppLabel),
+            icon = runCatching { info.loadIcon(context, android.util.DisplayMetrics.DENSITY_DEFAULT) }.getOrNull(),
+            hostAppLabel = hostAppLabel
+        )
+    }.sortedBy { it.label.lowercase() }
+}
+
+/** Full list of every real widget available on the phone (across every
+ *  app that publishes one), each with its actual icon — replaces the old
+ *  hand-drawn "Google search bar" with an actual widget the user embeds. */
+@Composable
+private fun WidgetPickerDialog(
+    fgColor: Color,
+    bgColor: Color,
+    onPicked: (android.appwidget.AppWidgetProviderInfo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var widgets by remember { mutableStateOf<List<InstalledWidgetEntry>>(emptyList()) }
+    var query by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        widgets = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            queryInstalledWidgets(context)
+        }
+    }
+    val filtered = remember(widgets, query) {
+        if (query.isBlank()) widgets else widgets.filter {
+            it.label.contains(query, ignoreCase = true) || it.hostAppLabel.contains(query, ignoreCase = true)
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.8f)
+                .clip(RoundedCornerShape(20.dp))
+                .background(bgColor)
+                .padding(16.dp)
+        ) {
+            Text(
+                "Choose a widget",
+                color = fgColor,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            Text(
+                "Some widgets ask for a one-time permission, or open their own small setup screen, right after you pick them — that's normal.",
+                color = fgColor.copy(alpha = 0.4f),
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(fgColor.copy(alpha = 0.08f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    textStyle = TextStyle(color = fgColor, fontSize = 14.sp),
+                    cursorBrush = SolidColor(fgColor),
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        if (query.isEmpty()) {
+                            Text("Search widgets…", color = fgColor.copy(alpha = 0.4f), fontSize = 14.sp)
+                        }
+                        inner()
+                    }
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            if (widgets.isEmpty()) {
+                Text("Loading…", color = fgColor.copy(alpha = 0.5f), fontSize = 13.sp)
+            } else if (filtered.isEmpty()) {
+                Text("No widgets match \"$query\"", color = fgColor.copy(alpha = 0.5f), fontSize = 13.sp)
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(filtered, key = { it.info.provider.flattenToString() }) { entry ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPicked(entry.info) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val icon = entry.icon
+                            if (icon != null) {
+                                Image(
+                                    bitmap = remember(entry.info.provider) { icon.toBitmap().asImageBitmap() },
+                                    contentDescription = null,
+                                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp))
+                                )
+                            } else {
+                                Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(fgColor.copy(alpha = 0.12f)))
+                            }
+                            Column(modifier = Modifier.padding(start = 14.dp)) {
+                                Text(entry.label, color = fgColor, fontSize = 14.sp)
+                                Text(entry.hostAppLabel, color = fgColor.copy(alpha = 0.45f), fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
