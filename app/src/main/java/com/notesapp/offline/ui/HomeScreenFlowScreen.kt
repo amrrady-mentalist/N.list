@@ -264,18 +264,12 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
         topBarText = if (currentPage == totalPages - 1) formatPeekTime(pinDigits) else realTime
     }
 
-    var toastVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(toastVisible) {
-        if (toastVisible) {
-            kotlinx.coroutines.delay(2000)
-            toastVisible = false
-        }
-    }
-
     fun handleTap(page: Int, cell: Pair<Int, Int>) {
         when (pages.getOrNull(page)?.cells?.get(cell)) {
             is HsCellContent.Notes -> viewModel.resolveHomeScreenPin(pinDigits)
-            is HsCellContent.App -> toastVisible = true
+            // Decoy icons are silent no-ops now — tapping one used to pop
+            // an "App not installed" toast, which was an unwanted tell.
+            is HsCellContent.App -> Unit
             null -> Unit
         }
     }
@@ -383,12 +377,21 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
 
             HsPageDots(totalPages, currentPage)
             HsDock(
-                onDummyTap = { toastVisible = true },
+                onDummyTap = { /* no-op — decoy dock icons don't respond */ },
                 onLockDoubleTap = { viewModel.abortHomeScreenFlow() }
             )
         }
 
-        HsToast(visible = toastVisible)
+        // TEMPORARY diagnostic — remove once the blank-pages issue is
+        // confirmed fixed. Shows what this page's data model actually
+        // contains, so a screenshot tells us whether the bug is in the
+        // data (buildHsPages) or purely in rendering.
+        Text(
+            "DEBUG page=$currentPage/${totalPages - 1} widget=${pages.getOrNull(currentPage)?.widget} cells=${pages.getOrNull(currentPage)?.cells?.size}",
+            color = Color.Yellow,
+            fontSize = 11.sp,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 50.dp)
+        )
     }
 }
 
@@ -740,19 +743,3 @@ private fun DockLockIcon(onDoubleTap: () -> Unit) {
     }
 }
 
-@Composable
-private fun HsToast(visible: Boolean) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-        if (visible) {
-            Box(
-                Modifier
-                    .padding(bottom = 130.dp)
-                    .clip(RoundedCornerShape(100.dp))
-                    .background(Color(0xFF282828).copy(alpha = 0.9f))
-                    .padding(horizontal = 20.dp, vertical = 10.dp)
-            ) {
-                Text("App not installed", color = Color.White, fontSize = 13.sp)
-            }
-        }
-    }
-}
