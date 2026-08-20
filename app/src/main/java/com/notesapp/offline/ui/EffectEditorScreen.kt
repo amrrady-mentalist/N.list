@@ -131,8 +131,18 @@ fun EffectEditorScreen(
             }
             IconButton(
                 onClick = {
-                    scope.launch { repo.deleteEffect(current.id) }
-                    onBack()
+                    // deleteEffect() is a suspend IO write; calling onBack()
+                    // right after firing scope.launch (instead of from
+                    // inside it) let the navigation happen first, which
+                    // tore down this screen's rememberCoroutineScope and
+                    // CANCELLED the delete before its file write ever
+                    // completed — the effect would still be there when
+                    // Magic Settings reloaded. onBack() now only runs once
+                    // deleteEffect() has actually finished.
+                    scope.launch {
+                        repo.deleteEffect(current.id)
+                        onBack()
+                    }
                 },
                 modifier = Modifier.size(40.dp).glassPanel(radius = GlassRadius.lg, tint = fgColor)
             ) {
