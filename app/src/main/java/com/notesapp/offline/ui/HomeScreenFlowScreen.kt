@@ -444,7 +444,16 @@ private fun HsStatusBar(timeText: String) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(timeText, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        // A little extra breathing room off the left edge — it sat flush
+        // against the 16.dp row padding, which read as oddly tight next to
+        // a real status bar's clock.
+        Text(
+            timeText,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 6.dp)
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
             HsSignalBars()
             HsWifiIcon()
@@ -648,6 +657,12 @@ private fun HsClockWidget() {
     }
 }
 
+// Grid icons now match the dock's icon size (56.dp) exactly — they used to
+// be rendered smaller (52.dp) than the dock's own icons even though both
+// represent the same kind of app tile, which read as an inconsistency once
+// you looked at the two side by side.
+private val HsIconSize = 56.dp
+
 @Composable
 private fun HsAppIcon(app: HsDecoyApp, overridePath: String?, overrideName: String?) {
     val bmp = remember(overridePath) {
@@ -657,8 +672,8 @@ private fun HsAppIcon(app: HsDecoyApp, overridePath: String?, overrideName: Stri
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(13.dp))
+                .size(HsIconSize)
+                .clip(RoundedCornerShape(14.dp))
                 .background(if (bmp != null) Color.Transparent else app.color),
             contentAlignment = Alignment.Center
         ) {
@@ -706,8 +721,8 @@ private fun HsNotesIcon(iconPath: String?) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(13.dp))
+                .size(HsIconSize)
+                .clip(RoundedCornerShape(14.dp))
                 .background(Color(0xFF111111)),
             contentAlignment = Alignment.Center
         ) {
