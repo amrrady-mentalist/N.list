@@ -115,8 +115,7 @@ fun DrawingScreen(
         val bitmap = rasterize(
             strokes = strokes.value,
             size = canvasSizePx,
-            background = if (backgroundCleared) null else backgroundBitmap,
-            fallbackBg = bgColor
+            background = if (backgroundCleared) null else backgroundBitmap
         )
         onSave(bitmapToBase64(bitmap))
     }
@@ -258,7 +257,25 @@ fun DrawingScreen(
     }
 }
 
-private fun rasterize(strokes: List<DrawnStroke>, size: Offset, background: Bitmap?, fallbackBg: Color): Bitmap {
+/**
+ * Rasterizes just the strokes (plus a copied-in background photo, if any)
+ * onto a bitmap — deliberately with NO solid color fill behind them when
+ * there's no photo background. ARGB_8888 bitmaps start fully transparent,
+ * so leaving that alone means the saved PNG carries real transparency in
+ * every area that was never drawn on.
+ *
+ * This used to fill the empty canvas with whatever the app's bgColor was
+ * AT SAVE TIME (dark or light), baking that color permanently into the
+ * PNG's pixels. The result: a drawing made in dark mode stayed on a black
+ * background forever, even after switching the whole app to light theme,
+ * because by the time it was reopened the "background" wasn't the live
+ * theme color anymore — it was solid black pixels baked into the image
+ * itself. Every screen that displays a saved drawing (this screen, the
+ * note editor's preview, the notes list thumbnail) already renders it on
+ * top of a themed background, so leaving the PNG transparent here is all
+ * that's needed for it to pick up whichever theme is active when viewed.
+ */
+private fun rasterize(strokes: List<DrawnStroke>, size: Offset, background: Bitmap?): Bitmap {
     val w = size.x.toInt().coerceAtLeast(1)
     val h = size.y.toInt().coerceAtLeast(1)
     val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -267,16 +284,8 @@ private fun rasterize(strokes: List<DrawnStroke>, size: Offset, background: Bitm
         val src = android.graphics.Rect(0, 0, background.width, background.height)
         val dst = android.graphics.Rect(0, 0, w, h)
         canvas.drawBitmap(background, src, dst, null)
-    } else {
-        canvas.drawColor(
-            android.graphics.Color.argb(
-                255,
-                (fallbackBg.red * 255).toInt(),
-                (fallbackBg.green * 255).toInt(),
-                (fallbackBg.blue * 255).toInt()
-            )
-        )
     }
+    // else: leave the bitmap as-is — fully transparent, no baked-in fill.
     val paint = AndroidPaint().apply {
         isAntiAlias = true
         style = AndroidPaint.Style.STROKE
