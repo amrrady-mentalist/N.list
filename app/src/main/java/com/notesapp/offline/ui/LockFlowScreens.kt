@@ -1,15 +1,26 @@
 package com.notesapp.offline.ui
 
+import android.content.Context
+import android.content.Intent
+import android.hardware.camera2.CameraManager
+import android.provider.MediaStore
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -17,22 +28,28 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -40,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notesapp.offline.R
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -130,6 +148,11 @@ private val ClockFontFamily = FontFamily(Font(R.font.clock_numerals))
 private val ClockSize = 284.sp // 316sp - 10%
 private const val ClockStretch = 1f
 
+/** How far (as a fraction of screen height) the ambient card must be
+ *  dragged before releasing commits to the swipe-up transition instead of
+ *  springing back down. */
+private const val SwipeCommitFraction = 0.16f
+
 @Composable
 private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
     var time by remember { mutableStateOf("") }
@@ -144,76 +167,261 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
         }
     }
 
-    var startY = 0f
+    val scope = rememberCoroutineScope()
+    // The whole screen behaves as one draggable "card": dragging up carries
+    // the clock/background with the finger (with a little resistance, and
+    // a matching fade), and releasing past the commit threshold finishes
+    // the slide off the top of the screen before handing off to the PIN
+    // screen — releasing short of it springs back down to rest, exactly
+    // like swiping up a real always-on-display clock.
+    val offsetY = remember { Animatable(0f) }
+    var containerHeightPx by remember { mutableStateOf(1f) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragStart = { startY = it.y },
-                    onDragEnd = {},
-                    onVerticalDrag = { change, _ ->
-                        val dy = change.position.y - startY
-                        if (dy < -60f) onSwipeUp()
+                containerHeightPx = size.height.toFloat()
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    var totalDy = 0f
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        if (!change.pressed) {
+                            val committed = totalDy < -(containerHeightPx * SwipeCommitFraction)
+                            scope.launch {
+                                if (committed) {
+                                    offsetY.animateTo(
+                                        targetValue = -containerHeightPx,
+                                        animationSpec = tween(220)
+                                    )
+                                    onSwipeUp()
+                                } else {
+                                    offsetY.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = androidx.compose.animation.core.spring(
+                                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+                                            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                                        )
+                                    )
+                                }
+                            }
+                            break
+                        }
+                        val dy = change.positionChange().y
+                        // Only upward drags move the card; a downward drag
+                        // just rubber-bands a little instead of dragging it
+                        // further down past its resting position.
+                        totalDy += dy
+                        change.consume()
+                        val next = (offsetY.value + dy).coerceAtMost(0f)
+                        scope.launch { offsetY.snapTo(next) }
                     }
-                )
+                }
             },
         contentAlignment = Alignment.TopCenter
     ) {
-        LockBackground(
-            path = backgroundPath,
-            scrimStops = listOf(
-                0f to Color.Black.copy(alpha = 0.35f),
-                0.4f to Color.Black.copy(alpha = 0.2f),
-                1f to Color.Black.copy(alpha = 0.6f)
-            )
-        )
-        // iOS-style Lock Screen clock: bare text directly on the wallpaper
-        // (no glass card behind it), anchored near the top like Apple's —
-        // not centered on the whole screen — with a contained width (not
-        // stretched edge-to-edge) and enough stroke weight to still read as
-        // solid glyphs rather than hollow outlines.
-        Column(
-            modifier = Modifier.padding(top = 76.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        val progress = (abs(offsetY.value) / containerHeightPx).coerceIn(0f, 1f)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = offsetY.value
+                    alpha = 1f - progress * 0.9f
+                }
         ) {
-            Text(
-                text = date,
-                color = Color.White.copy(alpha = 0.92f),
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium
+            LockBackground(
+                path = backgroundPath,
+                scrimStops = listOf(
+                    0f to Color.Black.copy(alpha = 0.35f),
+                    0.4f to Color.Black.copy(alpha = 0.2f),
+                    1f to Color.Black.copy(alpha = 0.6f)
+                )
             )
-            Text(
-                text = time,
-                style = TextStyle(
-                    // Top-to-bottom fade instead of a flat fill — the depth
-                    // cue that reads as "glass"/light even without doing the
-                    // full photo-subject cutout effect.
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.White, Color.White.copy(alpha = 0.62f))
-                    )
-                ),
-                fontSize = ClockSize,
-                fontFamily = ClockFontFamily,
-                letterSpacing = (-0.5).sp,
-                maxLines = 1,
-                softWrap = false,
-                // "Stretch" — a vertical-only scale, drawn taller without
-                // getting wider. Scaling is a draw-time transform, so it
-                // doesn't change the space this Text reserves in the
-                // Column; a bit of extra top padding below keeps the
-                // stretched glyphs from crowding the date above.
+            // iOS-style Lock Screen clock: bare text directly on the wallpaper
+            // (no glass card behind it), anchored near the top like Apple's —
+            // not centered on the whole screen — with a contained width (not
+            // stretched edge-to-edge) and enough stroke weight to still read as
+            // solid glyphs rather than hollow outlines.
+            Column(
                 modifier = Modifier
-                    .padding(top = 10.dp)
-                    .scale(scaleX = 1f, scaleY = ClockStretch)
+                    .align(Alignment.TopCenter)
+                    .padding(top = 76.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = date,
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = time,
+                    style = TextStyle(
+                        // Top-to-bottom fade instead of a flat fill — the depth
+                        // cue that reads as "glass"/light even without doing the
+                        // full photo-subject cutout effect.
+                        brush = Brush.verticalGradient(
+                            colors = listOf(Color.White, Color.White.copy(alpha = 0.62f))
+                        )
+                    ),
+                    fontSize = ClockSize,
+                    fontFamily = ClockFontFamily,
+                    letterSpacing = (-0.5).sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    // "Stretch" — a vertical-only scale, drawn taller without
+                    // getting wider. Scaling is a draw-time transform, so it
+                    // doesn't change the space this Text reserves in the
+                    // Column; a bit of extra top padding below keeps the
+                    // stretched glyphs from crowding the date above.
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .scale(scaleX = 1f, scaleY = ClockStretch)
+                )
+            }
+
+            // Same two quick-action buttons a real lock screen shows in its
+            // bottom corners (torch, camera) — built from the exact same
+            // frosted-glass circle style as the PIN keypad's number keys,
+            // so it reads as one consistent design language.
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 28.dp, vertical = 40.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                TorchQuickAction()
+                CameraQuickAction()
+            }
+        }
+    }
+}
+
+@Composable
+private fun TorchQuickAction() {
+    val context = LocalContext.current
+    var torchOn by remember { mutableStateOf(false) }
+    GlassKey(size = 56.dp, onTap = {
+        torchOn = !torchOn
+        setTorchEnabled(context, torchOn)
+    }) {
+        FlashlightIcon(tint = Color.White, active = torchOn)
+    }
+    // If the ambient screen goes away (swiped past, or the flow resets)
+    // while the torch is on, turn it back off rather than leaving the
+    // phone's flash lit in someone's pocket.
+    DisposableEffect(Unit) {
+        onDispose { if (torchOn) setTorchEnabled(context, false) }
+    }
+}
+
+@Composable
+private fun CameraQuickAction() {
+    val context = LocalContext.current
+    GlassKey(size = 56.dp, onTap = {
+        runCatching {
+            context.startActivity(
+                Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         }
+    }) {
+        CameraGlyphIcon(tint = Color.White)
+    }
+}
+
+private fun setTorchEnabled(context: Context, enabled: Boolean) {
+    runCatching {
+        val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        val camId = manager.cameraIdList.firstOrNull { id ->
+            manager.getCameraCharacteristics(id)
+                .get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        } ?: return
+        manager.setTorchMode(camId, enabled)
+    }
+}
+
+@Composable
+private fun FlashlightIcon(tint: Color, active: Boolean) {
+    androidx.compose.foundation.Canvas(modifier = Modifier.size(22.dp)) {
+        val w = size.width
+        val h = size.height
+        val bodyTop = h * 0.28f
+        val color = if (active) Color(0xFFFFD54A) else tint
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(w * 0.32f, bodyTop),
+            size = androidx.compose.ui.geometry.Size(w * 0.36f, h * 0.5f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.06f)
+        )
+        // Head (wider top cap, tapering into the body)
+        val head = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.24f, bodyTop)
+            lineTo(w * 0.76f, bodyTop)
+            lineTo(w * 0.62f, h * 0.1f)
+            lineTo(w * 0.38f, h * 0.1f)
+            close()
+        }
+        drawPath(head, color = color)
+        // Switch nub + beam lines below
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(w * 0.42f, h * 0.78f),
+            size = androidx.compose.ui.geometry.Size(w * 0.16f, h * 0.14f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.03f)
+        )
+    }
+}
+
+@Composable
+private fun CameraGlyphIcon(tint: Color) {
+    androidx.compose.foundation.Canvas(modifier = Modifier.size(22.dp)) {
+        val w = size.width
+        val h = size.height
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.08f, h * 0.28f),
+            size = androidx.compose.ui.geometry.Size(w * 0.84f, h * 0.56f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.1f)
+        )
+        // Viewfinder bump on top
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.36f, h * 0.14f),
+            size = androidx.compose.ui.geometry.Size(w * 0.28f, h * 0.16f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.04f)
+        )
+        // Lens (cut out of the body as a ring so it reads as a lens, not a dot)
+        drawCircle(
+            color = Color.Black.copy(alpha = 0.55f),
+            radius = w * 0.17f,
+            center = Offset(w * 0.5f, h * 0.58f)
+        )
+        drawCircle(
+            color = tint,
+            radius = w * 0.10f,
+            center = Offset(w * 0.5f, h * 0.58f)
+        )
     }
 }
 
 @Composable
 private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
     val pin by viewModel.pinDigits.collectAsState()
+    val unlocking by viewModel.unlocking.collectAsState()
+
+    // Drives the whole "unlocking" moment: the padlock swings open and
+    // turns green, the keypad/dots fade and settle back a touch, and a
+    // soft light bloom washes over the screen — instead of the note list
+    // just hard-cutting in the instant the 4th digit lands.
+    val unlockProgress by animateFloatAsState(
+        targetValue = if (unlocking) 1f else 0f,
+        animationSpec = tween(360),
+        label = "unlockProgress"
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         LockBackground(
@@ -223,6 +431,18 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
                 0.32f to Color.Black.copy(alpha = 0.25f),
                 1f to Color.Black.copy(alpha = 0.75f)
             )
+        )
+        // Soft light bloom that washes over the screen right as the trick
+        // resolves, reinforcing the "unlocked" moment.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = unlockProgress }
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.28f), Color.Transparent)
+                    )
+                )
         )
         Column(
             modifier = Modifier
@@ -235,9 +455,9 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    LockGlyphIcon()
+                    LockGlyphIcon(open = unlocking)
                     Text(
-                        "Enter PIN",
+                        if (unlocking) "Unlocked" else "Enter PIN",
                         color = Color.White.copy(alpha = 0.95f),
                         fontSize = 20.sp,
                         modifier = Modifier.padding(top = 12.dp)
@@ -253,7 +473,18 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
             // stuck to the bottom edge.
             Box(modifier = Modifier.weight(0.38f))
 
-            PinKeypad(onKey = viewModel::onPinKey, modifier = Modifier.padding(top = 54.dp)) // +2mm, +2.5mm, +3mm, then another +1mm (≈6.3dp) fixed shift down — total ≈8.5mm from original
+            PinKeypad(
+                onKey = viewModel::onPinKey,
+                modifier = Modifier
+                    .padding(top = 54.dp) // +2mm, +2.5mm, +3mm, then another +1mm (≈6.3dp) fixed shift down — total ≈8.5mm from original
+                    .graphicsLayer {
+                        // Fades and settles back very slightly so the keypad
+                        // recedes as the unlock confirmation takes over.
+                        alpha = 1f - unlockProgress
+                        scaleX = 1f - unlockProgress * 0.06f
+                        scaleY = 1f - unlockProgress * 0.06f
+                    }
+            )
 
             Box(modifier = Modifier.weight(0.62f))
         }
@@ -262,9 +493,21 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
 
 /** A simple padlock glyph — same stroked-outline style as the rest of the
  *  app's hand-drawn icons — sitting above "Enter PIN", matching the
- *  reference lock-screen design. */
+ *  reference lock-screen design. When [open] is true (the PIN just
+ *  resolved), the shackle animates swinging open and the glyph tints
+ *  green, giving the "unlocking" moment a visual instead of a hard cut. */
 @Composable
-private fun LockGlyphIcon() {
+private fun LockGlyphIcon(open: Boolean = false) {
+    val swing by animateFloatAsState(
+        targetValue = if (open) 1f else 0f,
+        animationSpec = tween(320),
+        label = "shackleSwing"
+    )
+    val tint by androidx.compose.animation.animateColorAsState(
+        targetValue = if (open) Color(0xFF4FE8C4) else Color.White.copy(alpha = 0.95f),
+        animationSpec = tween(320),
+        label = "lockTint"
+    )
     androidx.compose.foundation.Canvas(modifier = Modifier.size(30.dp)) {
         val w = size.width
         val h = size.height
@@ -273,29 +516,34 @@ private fun LockGlyphIcon() {
             cap = androidx.compose.ui.graphics.StrokeCap.Round,
             join = androidx.compose.ui.graphics.StrokeJoin.Round
         )
-        // Shackle (the arc on top)
-        drawArc(
-            color = Color.White.copy(alpha = 0.95f),
-            startAngle = 180f,
-            sweepAngle = 180f,
-            useCenter = false,
-            topLeft = androidx.compose.ui.geometry.Offset(w * 0.28f, h * 0.08f),
-            size = androidx.compose.ui.geometry.Size(w * 0.44f, w * 0.44f),
-            style = stroke
-        )
+        // Shackle (the arc on top) — pivots up and to the right as it
+        // "unlocks", same motion a real padlock's shackle makes.
+        rotate(degrees = -55f * swing, pivot = Offset(w * 0.72f, h * 0.42f)) {
+            translate(left = 0f, top = -h * 0.06f * swing) {
+                drawArc(
+                    color = tint,
+                    startAngle = 180f,
+                    sweepAngle = 180f,
+                    useCenter = false,
+                    topLeft = Offset(w * 0.28f, h * 0.08f),
+                    size = androidx.compose.ui.geometry.Size(w * 0.44f, w * 0.44f),
+                    style = stroke
+                )
+            }
+        }
         // Body
         drawRoundRect(
-            color = Color.White.copy(alpha = 0.95f),
-            topLeft = androidx.compose.ui.geometry.Offset(w * 0.18f, h * 0.42f),
+            color = tint,
+            topLeft = Offset(w * 0.18f, h * 0.42f),
             size = androidx.compose.ui.geometry.Size(w * 0.64f, h * 0.5f),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.1f, w * 0.1f),
             style = stroke
         )
         // Keyhole
         drawCircle(
-            color = Color.White.copy(alpha = 0.95f),
+            color = tint,
             radius = w * 0.05f,
-            center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.64f)
+            center = Offset(w * 0.5f, h * 0.64f)
         )
     }
 }
@@ -375,68 +623,12 @@ private fun PinKeypad(onKey: (String) -> Unit, modifier: Modifier = Modifier) {
                             Text("Delete", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
                         }
                         else -> {
-                            val glowing = glowingKey == key
-                            val glowAlpha by androidx.compose.animation.core.animateFloatAsState(
-                                targetValue = if (glowing) 1f else 0f,
-                                animationSpec = androidx.compose.animation.core.tween(180),
-                                label = "keyGlow"
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(keySize)
-                                    // A very faint, tiny hint of light that just barely
-                                    // reaches past the button's own edge on tap — kept
-                                    // small and subtle on purpose, not a halo. Drawn
-                                    // before .clip so it isn't cut off at the circle.
-                                    .drawBehind {
-                                        if (glowAlpha > 0f) {
-                                            val hintRadius = size.minDimension * 0.62f
-                                            drawCircle(
-                                                brush = Brush.radialGradient(
-                                                    colors = listOf(
-                                                        Color.White.copy(alpha = 0.05f * glowAlpha),
-                                                        Color.Transparent
-                                                    ),
-                                                    center = center,
-                                                    radius = hintRadius
-                                                ),
-                                                radius = hintRadius,
-                                                center = center
-                                            )
-                                        }
-                                    }
-                                    .clip(CircleShape)
-                                    // Frosted-glass base: a soft top-to-bottom sheen
-                                    // instead of a flat fill, so the key reads as a
-                                    // piece of glass at rest.
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                Color.White.copy(alpha = 0.16f),
-                                                Color.White.copy(alpha = 0.06f)
-                                            )
-                                        )
-                                    )
-                                    // The tap feedback itself lives entirely inside the
-                                    // glass — a brightening centered in the circle,
-                                    // clipped to it, so no glow escapes the button.
-                                    .background(
-                                        Brush.radialGradient(
-                                            colors = listOf(
-                                                Color.White.copy(alpha = 0.42f * glowAlpha),
-                                                Color.White.copy(alpha = 0.14f * glowAlpha),
-                                                Color.Transparent
-                                            )
-                                        )
-                                    )
-                                    .border(1.dp, Color.White.copy(alpha = 0.20f + 0.25f * glowAlpha), CircleShape)
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(onTap = {
-                                            glowingKey = key
-                                            onKey(key)
-                                        })
-                                    },
-                                contentAlignment = Alignment.Center
+                            GlassKey(
+                                size = keySize,
+                                onTap = {
+                                    glowingKey = key
+                                    onKey(key)
+                                }
                             ) {
                                 Text(key, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Normal)
                             }
@@ -446,4 +638,90 @@ private fun PinKeypad(onKey: (String) -> Unit, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/**
+ * The frosted-glass circle button used everywhere in the lock flow that
+ * needs a "physical key" feel: the PIN keypad's digits above, and the
+ * ambient screen's torch/camera quick actions. Kept as one shared
+ * composable (rather than copy-pasted styling) so every glass button in
+ * the flow is guaranteed to look and animate identically — a soft
+ * top-to-bottom frosted sheen at rest, with a brightening radial glow on
+ * tap that's fully clipped to the circle.
+ */
+@Composable
+private fun GlassKey(
+    size: androidx.compose.ui.unit.Dp = 68.dp,
+    onTap: () -> Unit,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit
+) {
+    var pressed by remember { mutableStateOf(false) }
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            kotlinx.coroutines.delay(220)
+            pressed = false
+        }
+    }
+    val glowAlpha by animateFloatAsState(
+        targetValue = if (pressed) 1f else 0f,
+        animationSpec = tween(180),
+        label = "glassKeyGlow"
+    )
+    Box(
+        modifier = Modifier
+            .size(size)
+            // A very faint, tiny hint of light that just barely reaches
+            // past the button's own edge on tap — kept small and subtle
+            // on purpose, not a halo. Drawn before .clip so it isn't cut
+            // off at the circle.
+            .drawBehind {
+                if (glowAlpha > 0f) {
+                    val hintRadius = this.size.minDimension * 0.62f
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.05f * glowAlpha),
+                                Color.Transparent
+                            ),
+                            center = center,
+                            radius = hintRadius
+                        ),
+                        radius = hintRadius,
+                        center = center
+                    )
+                }
+            }
+            .clip(CircleShape)
+            // Frosted-glass base: a soft top-to-bottom sheen instead of a
+            // flat fill, so the key reads as a piece of glass at rest.
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.16f),
+                        Color.White.copy(alpha = 0.06f)
+                    )
+                )
+            )
+            // The tap feedback itself lives entirely inside the glass — a
+            // brightening centered in the circle, clipped to it, so no
+            // glow escapes the button.
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.42f * glowAlpha),
+                        Color.White.copy(alpha = 0.14f * glowAlpha),
+                        Color.Transparent
+                    )
+                )
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.20f + 0.25f * glowAlpha), CircleShape)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = {
+                    pressed = true
+                    onTap()
+                })
+            },
+        contentAlignment = Alignment.Center,
+        content = content
+    )
 }
