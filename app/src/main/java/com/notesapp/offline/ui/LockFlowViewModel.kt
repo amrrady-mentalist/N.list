@@ -30,9 +30,16 @@ class LockFlowViewModel(
     private val _unlocked = MutableStateFlow(false)
     val unlocked: StateFlow<Boolean> = _unlocked.asStateFlow()
 
+    private val _unlocking = MutableStateFlow(false)
+    /** True for the brief window between the 4th PIN digit landing and
+     *  [unlocked] actually flipping â€” PinScreen watches this to play an
+     *  "unlocking" animation (padlock opening / keypad dissolving) instead
+     *  of just hard-cutting to the note list the instant the digit lands. */
+    val unlocking: StateFlow<Boolean> = _unlocking.asStateFlow()
+
     private val _lockBackgroundPath = MutableStateFlow<String?>(null)
     /** Path to the classic-lock background photo, if one's set in Magic
-     *  Settings — read fresh every time the flow (re)starts via reset(). */
+     *  Settings â€” read fresh every time the flow (re)starts via reset(). */
     val lockBackgroundPath: StateFlow<String?> = _lockBackgroundPath.asStateFlow()
 
     // ---- Home Screen disguise mode ----
@@ -55,7 +62,7 @@ class LockFlowViewModel(
     val hsWidgetId: StateFlow<Int> = _hsWidgetId.asStateFlow()
 
     private val _hsRequiredDigits = MutableStateFlow(2)
-    /** How many swipe-pages the fake home screen needs — one digit per
+    /** How many swipe-pages the fake home screen needs â€” one digit per
      *  page, same rule the web app used: the longest configured Word-Force
      *  out code, or the List-Force's item-count digit width, minimum 2. */
     val hsRequiredDigits: StateFlow<Int> = _hsRequiredDigits.asStateFlow()
@@ -73,7 +80,7 @@ class LockFlowViewModel(
         _screen.value = LockScreenState.BLACKOUT
     }
 
-    /** The fake home screen's hidden "Lock" dock icon — double-tapping it
+    /** The fake home screen's hidden "Lock" dock icon â€” double-tapping it
      *  bails out of the disguise entirely (no PIN resolved, no note
      *  touched) straight back to the real note list. Reuses the same
      *  `unlocked` signal the successful-trick path uses since both cases
@@ -83,38 +90,58 @@ class LockFlowViewModel(
     }
 
     /** Called once the performer taps the disguised Notes icon on the fake
-     *  home screen's final page — feeds the digits collected via swipes
+     *  home screen's final page â€” feeds the digits collected via swipes
      *  into the exact same resolvePin() the classic keypad uses. */
     fun resolveHomeScreenPin(pin: String) {
         resolvePin(pin)
     }
 
-    /** Re-arms the flow for another performance without restarting the app. */
-    fun reset() {
+    /**
+     * Re-arms the flow for another performance without restarting the app.
+     *
+     * This is a suspend function (rather than firing a fire-and-forget
+     * viewModelScope.launch internally) so the CALLER can await it before
+     * ever navigating to the Lock screen. That matters: the old version set
+     * `_screen.value = BLACKOUT` synchronously up front and only flipped it
+     * to HOME_SCREEN once the async magicRepo.load() finished, which meant
+     * a Home-Screen-mode performer always saw a flash of black screen for
+     * a frame or two before the fake home screen appeared. Awaiting
+     * prepare() first means _screen is only ever set ONCE, already holding
+     * the correct final value, so nothing flashes.
+     */
+    suspend fun prepare() {
         _pinDigits.value = ""
-        _screen.value = LockScreenState.BLACKOUT
         _unlocked.value = false
-        viewModelScope.launch {
-            val store = magicRepo.load()
-            _lockBackgroundPath.value = store.lockBackgroundPath
-            _hsWallpaperPath.value = store.homeWallpaperPath
-            _hsNotesIconPath.value = store.notesIconPath
-            _hsIconOverrides.value = store.appIconOverrides
-            _hsNameOverrides.value = store.appNameOverrides
-            _hsWidgetProvider.value = store.homeWidgetProvider
-            _hsWidgetId.value = store.homeWidgetId
+        _unlocking.value = false
 
-            val fx = store.activeEffect
-            _hsRequiredDigits.value = when {
-                fx == null -> 2
-                fx.type == EffectType.LIST -> ForceListEngine.codeDigits(fx.items)
-                else -> (fx.outs.maxOfOrNull { it.code.length } ?: 2).coerceAtLeast(2)
-            }
+        val store = magicRepo.load()
+        _lockBackgroundPath.value = store.lockBackgroundPath
+        _hsWallpaperPath.value = store.homeWallpaperPath
+        _hsNotesIconPath.value = store.notesIconPath
+        _hsIconOverrides.value = store.appIconOverrides
+        _hsNameOverrides.value = store.appNameOverrides
+        _hsWidgetProvider.value = store.homeWidgetProvider
+        _hsWidgetId.value = store.homeWidgetId
 
-            if (store.lockMode == LockMode.HOME_SCREEN) {
-                _screen.value = LockScreenState.HOME_SCREEN
-            }
+        val fx = store.activeEffect
+        _hsRequiredDigits.value = when {
+            fx == null -> 2
+            fx.type == EffectType.LIST -> ForceListEngine.codeDigits(fx.items)
+            else -> (fx.outs.maxOfOrNull { it.code.length } ?: 2).coerceAtLeast(2)
         }
+
+        _screen.value = if (store.lockMode == LockMode.HOME_SCREEN) {
+            LockScreenState.HOME_SCREEN
+        } else {
+            LockScreenState.BLACKOUT
+        }
+    }
+
+    /** Fire-and-forget variant of [prepare] for call sites that can't
+     *  suspend. Prefer calling `prepare()` directly from a coroutine and
+     *  awaiting it before navigating, to avoid the blackout flash. */
+    fun reset() {
+        viewModelScope.launch { prepare() }
     }
 
     fun onPinKey(key: String) {
@@ -132,7 +159,7 @@ class LockFlowViewModel(
 
     /**
      * Direct port of the web app's resolvePin(): ANY 4 digits resolve and
-     * unlock — there's no "correct" PIN to fail on. The digits are only
+     * unlock â€” there's no "correct" PIN to fail on. The digits are only
      * ever used as positional/lookup input for whichever effect is active.
      *
      * - No active effect: unlocks with no note created (matches the JS,
@@ -140,14 +167,15 @@ class LockFlowViewModel(
      * - LIST effect: same force-list math as before, now keyed off the
      *   active effect specifically rather than a single global effect.
      * - WORD effect: looks up the out whose code matches the PIN's last
-     *   N digits (N = the longest configured out code, min 2 — mirrors
+     *   N digits (N = the longest configured out code, min 2 â€” mirrors
      *   the JS's codeLen expansion), substitutes the matched word (or a
-     *   "🧐" placeholder if nothing matches) into the body wherever
-     *   "$$$$" appears, and creates a fresh note every time — the web
+     *   "ðŸ§" placeholder if nothing matches) into the body wherever
+     *   "$$$$" appears, and creates a fresh note every time â€” the web
      *   app never reuses/updates a previous note for word effects, only
      *   for list effects.
      */
     private fun resolvePin(pin: String) {
+        _unlocking.value = true
         viewModelScope.launch {
             val store = magicRepo.load()
             val fx = store.activeEffect
@@ -168,7 +196,7 @@ class LockFlowViewModel(
                         val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
 
                         // A numbered plain-text list ("1 - Item"), matching
-                        // the web app's <ol><li> rendering — not an actual
+                        // the web app's <ol><li> rendering â€” not an actual
                         // checkbox checklist, which reads as a to-do list
                         // rather than a forced sequence of items.
                         val numbered = forced.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
@@ -188,7 +216,7 @@ class LockFlowViewModel(
                     EffectType.WORD -> {
                         val target = lastDigits.toIntOrNull()
                         val match = fx.outs.firstOrNull { it.code.isNotEmpty() && it.code.toIntOrNull() == target }
-                        val word = if (match != null) match.word else "\uD83E\uDDD0" // 🧐 — matches the web app's fallback
+                        val word = if (match != null) match.word else "\uD83E\uDDD0" // ðŸ§ â€” matches the web app's fallback
                         val note = Note(
                             title = fx.title,
                             body = fx.body.replace("$$$$", word),
@@ -202,8 +230,17 @@ class LockFlowViewModel(
                 }
             }
 
+            // Give PinScreen's unlocking animation (padlock opening,
+            // keypad fading/scaling away) time to actually play before the
+            // screen gets swapped out from under it â€” the note work above
+            // already happened, this delay is purely for the visual.
+            kotlinx.coroutines.delay(UNLOCK_ANIM_MS)
             _unlocked.value = true
         }
+    }
+
+    companion object {
+        const val UNLOCK_ANIM_MS = 480L
     }
 }
 
