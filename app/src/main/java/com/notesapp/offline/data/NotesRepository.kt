@@ -47,4 +47,9 @@ class NotesRepository(context: Context) {
         val current = loadAll().filterNot { it.id == noteId }
         saveAll(current)
     }
+
+    /** Full overwrite — used by backup restore, which replaces everything
+     *  on disk with exactly what's in the backup file rather than merging
+     *  it with whatever notes already exist. */
+    suspend fun replaceAll(notes: List<Note>) = saveAll(notes)
 }
