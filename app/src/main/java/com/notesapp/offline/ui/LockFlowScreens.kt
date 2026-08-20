@@ -4,12 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.CameraManager
 import android.provider.MediaStore
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -25,6 +24,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FlashlightOff
+import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -308,7 +314,16 @@ private fun TorchQuickAction() {
         torchOn = !torchOn
         setTorchEnabled(context, torchOn)
     }) {
-        FlashlightIcon(tint = Color.White, active = torchOn)
+        // Real Material flashlight glyphs (swaps on/off variant with the
+        // toggle) instead of a hand-drawn Canvas shape — the hand-drawn
+        // version was rendering as an unrecognizable blob rather than an
+        // actual torch.
+        Icon(
+            imageVector = if (torchOn) Icons.Filled.FlashlightOn else Icons.Filled.FlashlightOff,
+            contentDescription = if (torchOn) "Turn off flashlight" else "Turn on flashlight",
+            tint = if (torchOn) Color(0xFFFFD54A) else Color.White,
+            modifier = Modifier.size(24.dp)
+        )
     }
     // If the ambient screen goes away (swiped past, or the flow resets)
     // while the torch is on, turn it back off rather than leaving the
@@ -329,7 +344,14 @@ private fun CameraQuickAction() {
             )
         }
     }) {
-        CameraGlyphIcon(tint = Color.White)
+        // Same swap: real Material camera glyph instead of the hand-drawn
+        // one, which was coming out misshapen.
+        Icon(
+            imageVector = Icons.Filled.PhotoCamera,
+            contentDescription = "Open camera",
+            tint = Color.White,
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 
@@ -341,70 +363,6 @@ private fun setTorchEnabled(context: Context, enabled: Boolean) {
                 .get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         } ?: return
         manager.setTorchMode(camId, enabled)
-    }
-}
-
-@Composable
-private fun FlashlightIcon(tint: Color, active: Boolean) {
-    androidx.compose.foundation.Canvas(modifier = Modifier.size(22.dp)) {
-        val w = size.width
-        val h = size.height
-        val bodyTop = h * 0.28f
-        val color = if (active) Color(0xFFFFD54A) else tint
-        drawRoundRect(
-            color = color,
-            topLeft = Offset(w * 0.32f, bodyTop),
-            size = androidx.compose.ui.geometry.Size(w * 0.36f, h * 0.5f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.06f)
-        )
-        // Head (wider top cap, tapering into the body)
-        val head = androidx.compose.ui.graphics.Path().apply {
-            moveTo(w * 0.24f, bodyTop)
-            lineTo(w * 0.76f, bodyTop)
-            lineTo(w * 0.62f, h * 0.1f)
-            lineTo(w * 0.38f, h * 0.1f)
-            close()
-        }
-        drawPath(head, color = color)
-        // Switch nub + beam lines below
-        drawRoundRect(
-            color = color,
-            topLeft = Offset(w * 0.42f, h * 0.78f),
-            size = androidx.compose.ui.geometry.Size(w * 0.16f, h * 0.14f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.03f)
-        )
-    }
-}
-
-@Composable
-private fun CameraGlyphIcon(tint: Color) {
-    androidx.compose.foundation.Canvas(modifier = Modifier.size(22.dp)) {
-        val w = size.width
-        val h = size.height
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(w * 0.08f, h * 0.28f),
-            size = androidx.compose.ui.geometry.Size(w * 0.84f, h * 0.56f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.1f)
-        )
-        // Viewfinder bump on top
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(w * 0.36f, h * 0.14f),
-            size = androidx.compose.ui.geometry.Size(w * 0.28f, h * 0.16f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.04f)
-        )
-        // Lens (cut out of the body as a ring so it reads as a lens, not a dot)
-        drawCircle(
-            color = Color.Black.copy(alpha = 0.55f),
-            radius = w * 0.17f,
-            center = Offset(w * 0.5f, h * 0.58f)
-        )
-        drawCircle(
-            color = tint,
-            radius = w * 0.10f,
-            center = Offset(w * 0.5f, h * 0.58f)
-        )
     }
 }
 
@@ -491,59 +449,42 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
     }
 }
 
-/** A simple padlock glyph — same stroked-outline style as the rest of the
- *  app's hand-drawn icons — sitting above "Enter PIN", matching the
- *  reference lock-screen design. When [open] is true (the PIN just
- *  resolved), the shackle animates swinging open and the glyph tints
- *  green, giving the "unlocking" moment a visual instead of a hard cut. */
+/** A padlock glyph sitting above "Enter PIN", matching the reference
+ *  lock-screen design. When [open] is true (the PIN just resolved) it
+ *  crossfades to the unlocked variant and tints green, giving the
+ *  "unlocking" moment a visual instead of a hard cut. */
 @Composable
 private fun LockGlyphIcon(open: Boolean = false) {
-    val swing by animateFloatAsState(
-        targetValue = if (open) 1f else 0f,
-        animationSpec = tween(320),
-        label = "shackleSwing"
-    )
+    // Swapped the hand-drawn rotating-shackle Canvas for real Material
+    // Lock/LockOpen glyphs. The custom version was rotating the shackle
+    // arc around the wrong pivot and ended up twisting into the body
+    // instead of swinging open — a real vetted vector icon sidesteps that
+    // entirely and is guaranteed to always point the right way.
     val tint by androidx.compose.animation.animateColorAsState(
         targetValue = if (open) Color(0xFF4FE8C4) else Color.White.copy(alpha = 0.95f),
         animationSpec = tween(320),
         label = "lockTint"
     )
-    androidx.compose.foundation.Canvas(modifier = Modifier.size(30.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
-            width = 2.dp.toPx(),
-            cap = androidx.compose.ui.graphics.StrokeCap.Round,
-            join = androidx.compose.ui.graphics.StrokeJoin.Round
-        )
-        // Shackle (the arc on top) — pivots up and to the right as it
-        // "unlocks", same motion a real padlock's shackle makes.
-        rotate(degrees = -55f * swing, pivot = Offset(w * 0.72f, h * 0.42f)) {
-            translate(left = 0f, top = -h * 0.06f * swing) {
-                drawArc(
-                    color = tint,
-                    startAngle = 180f,
-                    sweepAngle = 180f,
-                    useCenter = false,
-                    topLeft = Offset(w * 0.28f, h * 0.08f),
-                    size = androidx.compose.ui.geometry.Size(w * 0.44f, w * 0.44f),
-                    style = stroke
-                )
-            }
-        }
-        // Body
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(w * 0.18f, h * 0.42f),
-            size = androidx.compose.ui.geometry.Size(w * 0.64f, h * 0.5f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.1f, w * 0.1f),
-            style = stroke
-        )
-        // Keyhole
-        drawCircle(
-            color = tint,
-            radius = w * 0.05f,
-            center = Offset(w * 0.5f, h * 0.64f)
+    val scale by animateFloatAsState(
+        targetValue = if (open) 1.1f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+        ),
+        label = "lockScale"
+    )
+    androidx.compose.animation.Crossfade(
+        targetState = open,
+        animationSpec = tween(260),
+        label = "lockGlyph"
+    ) { isOpen ->
+        Icon(
+            imageVector = if (isOpen) Icons.Filled.LockOpen else Icons.Filled.Lock,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier
+                .size(30.dp)
+                .scale(scale)
         )
     }
 }
