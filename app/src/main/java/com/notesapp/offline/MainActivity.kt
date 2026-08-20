@@ -47,6 +47,7 @@ import com.notesapp.offline.ui.EffectEditorScreen
 import com.notesapp.offline.ui.LockFlowHost
 import com.notesapp.offline.ui.LockFlowViewModel
 import com.notesapp.offline.ui.LockFlowViewModelFactory
+import com.notesapp.offline.ui.LockScreenState
 import com.notesapp.offline.ui.MagicSettingsScreen
 import com.notesapp.offline.ui.NoteEditScreen
 import com.notesapp.offline.ui.NotesListScreen
@@ -59,7 +60,7 @@ import kotlinx.coroutines.launch
 /**
  * Screen state machine for the whole app. Opens straight to List — the
  * lock/blackout flow is no longer the cold-start screen; it's entered on
- * demand by double-tapping the "Notes" title, and LockFlowViewModel.reset()
+ * demand by double-tapping the "Notes" title, and LockFlowViewModel.prepare()
  * re-arms it each time so it can be used more than once per app session.
  *
  * Still a plain mutableState<Screen> rather than Navigation-Compose, same
@@ -76,10 +77,19 @@ sealed class Screen {
     data class OutSketch(val effectId: String, val outId: String) : Screen()
 }
 
-/** Screens that show the (transparent) status bar; everything else goes immersive. */
+/** Screens that show the (transparent) status bar; everything else goes immersive.
+ *  Screen.Lock is handled separately (see [LockScreenState.showsSystemBars]) since
+ *  whether its status bar shows depends on which state the lock flow is in. */
 private fun Screen.showsSystemBars(): Boolean =
     this is Screen.List || this is Screen.Edit || this is Screen.MagicSettings ||
         this is Screen.Drawing || this is Screen.EffectEditor || this is Screen.OutSketch
+
+/** Within the lock flow, only the Ambient (AOD-style) clock screen shows the
+ *  status bar — matches a real always-on-display, which still shows signal/
+ *  battery. Blackout, PIN entry, and the fake home screen all stay fully
+ *  immersive so nothing gives away that this isn't the device's real lock
+ *  screen / launcher. */
+private fun LockScreenState.showsSystemBars(): Boolean = this == LockScreenState.AMBIENT
 
 class MainActivity : ComponentActivity() {
 
@@ -186,6 +196,8 @@ private fun NotesApp(
     var editVersion by remember { mutableStateOf(0) }
     var effectVersion by remember { mutableStateOf(0) }
     val unlocked by lockFlowViewModel.unlocked.collectAsState()
+    val lockScreenState by lockFlowViewModel.screen.collectAsState()
+    val scope = rememberCoroutineScope()
 
     // The lock flow writes notes straight to NotesRepository, bypassing
     // NotesViewModel's in-memory cache (it can run before that ViewModel's
@@ -197,16 +209,24 @@ private fun NotesApp(
         if (unlocked) notesViewModel.refresh()
     }
 
-    // Immersive mode everywhere except the "real app chrome" screens.
+    // Immersive mode everywhere except the "real app chrome" screens — and,
+    // within the lock flow itself, everywhere except the Ambient clock
+    // screen (see showsSystemBars()/LockScreenState.showsSystemBars()).
     val view = LocalView.current
-    LaunchedEffect(screen, isDarkTheme) {
+    LaunchedEffect(screen, lockScreenState, isDarkTheme) {
         val activity = view.context as? Activity ?: return@LaunchedEffect
         val window = activity.window
         val controller = WindowCompat.getInsetsController(window, view)
-        if (screen.showsSystemBars()) {
+        val showBars = if (screen is Screen.Lock) lockScreenState.showsSystemBars() else screen.showsSystemBars()
+        if (showBars) {
             controller.show(WindowInsetsCompat.Type.statusBars())
             window.statusBarColor = android.graphics.Color.TRANSPARENT
-            controller.isAppearanceLightStatusBars = !isDarkTheme
+            // The lock flow's own screens (ambient clock included) are
+            // always rendered on a dark/photo background, so the status
+            // bar icons should stay light regardless of the app's own
+            // light/dark theme setting — matches every other lock-flow
+            // screen and avoids dark-on-dark icons on light theme.
+            controller.isAppearanceLightStatusBars = if (screen is Screen.Lock) false else !isDarkTheme
         } else {
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.statusBars())
@@ -235,8 +255,16 @@ private fun NotesApp(
             onOpenMagicSettings = { screen = Screen.MagicSettings },
             onToggleTheme = onToggleTheme,
             onEnterLockFlow = {
-                lockFlowViewModel.reset()
-                screen = Screen.Lock
+                // Await prepare() BEFORE switching to Screen.Lock, so the
+                // lock flow's screen state (blackout vs. straight to the
+                // fake home screen) is already resolved by the time
+                // LockFlowHost ever composes — this is what removes the
+                // one-frame flash of black that used to show while
+                // reset()'s async magicRepo.load() was still in flight.
+                scope.launch {
+                    lockFlowViewModel.prepare()
+                    screen = Screen.Lock
+                }
             }
         )
         is Screen.Edit -> key(s.noteId, editVersion) {
