@@ -16,6 +16,16 @@
         <intent>
             <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
         </intent>
+        <!-- Needed so the ambient screen's camera quick-action button can
+             actually resolve and launch the system camera app on Android
+             11+ — without a matching <queries> entry, startActivity() for
+             this implicit intent silently fails to find any app to handle
+             it, package-visibility rules block it from seeing the camera
+             app the same way they'd block seeing any other app's launcher
+             entry. -->
+        <intent>
+            <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
+        </intent>
     </queries>
 
     <application
