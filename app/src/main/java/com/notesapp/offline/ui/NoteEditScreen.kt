@@ -192,21 +192,6 @@ fun NoteEditScreen(
             )
         }
 
-        // Title — no border, no fill, just larger bold text blending into the page.
-        Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            if (current.title.isEmpty()) {
-                Text("Title", color = fgColor.copy(alpha = 0.32f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            }
-            BasicTextField(
-                value = current.title,
-                onValueChange = { persist(current.copy(title = it)) },
-                singleLine = true,
-                textStyle = TextStyle(color = fgColor, fontSize = 22.sp, fontWeight = FontWeight.Bold),
-                cursorBrush = SolidColor(fgColor),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
         // Drawing preview + body/checklist share a single scroll region, so
         // scrolling to read/write the note also scrolls past the preview.
         // The preview's height is tied directly to that scroll offset —
@@ -249,6 +234,28 @@ fun NoteEditScreen(
                     .fillMaxSize()
                     .verticalScroll(bodyScrollState)
             ) {
+                // Title now lives INSIDE the scroll region instead of being
+                // pinned above it — it scrolls away together with the body
+                // as you read/write further down the note. Previously it
+                // sat in its own fixed block outside the scrollable Column,
+                // which drew a hard, static edge right where the scrolling
+                // content started/ended underneath it; folding it into the
+                // same scroll region removes that seam entirely, the same
+                // way a "collapsing header" note app title behaves.
+                Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    if (current.title.isEmpty()) {
+                        Text("Title", color = fgColor.copy(alpha = 0.32f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    }
+                    BasicTextField(
+                        value = current.title,
+                        onValueChange = { persist(current.copy(title = it)) },
+                        singleLine = true,
+                        textStyle = TextStyle(color = fgColor, fontSize = 22.sp, fontWeight = FontWeight.Bold),
+                        cursorBrush = SolidColor(fgColor),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
                 current.drawingPngBase64?.let { b64 ->
                     val bmp = remember(b64) { decodeBase64ToBitmap(b64) }
                     if (bmp != null) {
