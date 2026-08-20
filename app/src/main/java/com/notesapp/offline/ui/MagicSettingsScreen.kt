@@ -57,12 +57,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.graphics.drawable.toBitmap
+import com.notesapp.offline.data.BackupRepository
 import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.HsWidgetHost
+import com.notesapp.offline.data.InvalidBackupException
 import com.notesapp.offline.data.LockMode
 import com.notesapp.offline.data.MagicEffect
 import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.MagicStore
+import com.notesapp.offline.data.NotesRepository
+import com.notesapp.offline.data.ThemeRepository
 import com.notesapp.offline.ui.theme.AccentA
 import com.notesapp.offline.ui.theme.AccentB
 import com.notesapp.offline.ui.theme.Danger
@@ -81,6 +85,8 @@ import java.io.File
 @Composable
 fun MagicSettingsScreen(
     repo: MagicRepository,
+    notesRepo: NotesRepository,
+    themeRepo: ThemeRepository,
     isDarkTheme: Boolean,
     onBack: () -> Unit,
     onOpenEffect: (String) -> Unit
@@ -89,6 +95,9 @@ fun MagicSettingsScreen(
     val context = LocalContext.current
     val bgColor = if (isDarkTheme) Color.Black else Color.White
     val fgColor = if (isDarkTheme) Color.White else Color.Black
+    val backupRepo = remember(repo, notesRepo, themeRepo) {
+        BackupRepository(notesRepo, repo, themeRepo)
+    }
 
     var store by remember { mutableStateOf(MagicStore()) }
     var loaded by remember { mutableStateOf(false) }
@@ -102,6 +111,54 @@ fun MagicSettingsScreen(
     fun persist(updated: MagicStore) {
         store = updated
         scope.launch { repo.save(updated) }
+    }
+
+    // ---- Backup & Restore ---------------------------------------------
+    var backupMessage by remember { mutableStateOf<String?>(null) }
+    var backupIsError by remember { mutableStateOf(false) }
+    // Set the instant a backup file is picked to restore from — shown as a
+    // confirmation dialog before anything is actually overwritten, since
+    // restoring replaces every note and every effect currently saved.
+    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { out -> backupRepo.export(out) }
+                    ?: error("couldn't open the destination file")
+            }.isSuccess
+            backupIsError = !ok
+            backupMessage = if (ok) "Backup saved." else "Couldn't save the backup — try again."
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) pendingRestoreUri = uri
+    }
+
+    fun runRestore(uri: Uri) {
+        scope.launch {
+            val result = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input -> backupRepo.import(input) }
+                    ?: throw InvalidBackupException("Couldn't open that file.")
+            }
+            result.fold(
+                onSuccess = { summary ->
+                    backupIsError = false
+                    store = repo.load() // this screen's own copy — the restore just overwrote it on disk
+                    backupMessage = buildString {
+                        append("Restored ${summary.noteCount} note${if (summary.noteCount == 1) "" else "s"} and ")
+                        append("${summary.effectCount} effect${if (summary.effectCount == 1) "" else "s"}.")
+                        if (summary.widgetNeedsRepick) append(" You'll need to re-pick your home screen widget.")
+                    }
+                },
+                onFailure = { e ->
+                    backupIsError = true
+                    backupMessage = e.message ?: "Couldn't restore that backup."
+                }
+            )
+        }
     }
 
     val lockBgPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -449,6 +506,36 @@ fun MagicSettingsScreen(
                             }
                         }
                     }
+                }
+            }
+
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    SectionLabel("Backup & Restore", fgColor, topPadding = 24.dp)
+                    Text(
+                        "Save everything — notes, drawings, effects, and their photos — to one file, or restore from one. Handy before reinstalling, since app data doesn't survive an uninstall.",
+                        color = fgColor.copy(alpha = 0.34f),
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GlassPill("Export backup", fgColor) {
+                            exportLauncher.launch(defaultBackupFileName())
+                        }
+                        GlassPill("Restore backup", fgColor) {
+                            importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                        }
+                    }
+                    backupMessage?.let { msg ->
+                        Text(
+                            msg,
+                            color = if (backupIsError) Danger else fgColor.copy(alpha = 0.6f),
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                    }
 
                     SectionLabel("Effects", fgColor, topPadding = 24.dp)
                 }
@@ -560,6 +647,34 @@ fun MagicSettingsScreen(
                     modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
                 )
                 GlassPill("OK", fgColor) { widgetErrorMessage = null }
+            }
+        }
+    }
+
+    pendingRestoreUri?.let { uri ->
+        Dialog(onDismissRequest = { pendingRestoreUri = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(bgColor)
+                    .padding(20.dp)
+            ) {
+                Text("Restore this backup?", color = fgColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "This replaces every note and every effect currently saved with what's in the backup file. This can't be undone.",
+                    color = fgColor.copy(alpha = 0.6f),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GlassPill("Cancel", fgColor) { pendingRestoreUri = null }
+                    GlassPill("Restore", Danger) {
+                        pendingRestoreUri = null
+                        runRestore(uri)
+                    }
+                }
             }
         }
     }
@@ -753,6 +868,13 @@ private fun EffectCard(
  *  crash anywhere, the background (and the settings-screen thumbnail) just
  *  quietly never appears. Now it explicitly checks the stream opened and
  *  the resulting file is non-empty before calling it a success. */
+/** "n-list-backup-2026-08-21.zip" — used as the suggested filename when
+ *  the Storage Access Framework's CreateDocument picker opens. */
+private fun defaultBackupFileName(): String {
+    val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+    return "n-list-backup-$date.zip"
+}
+
 private suspend fun copyImageToInternal(context: Context, uri: Uri, dir: File, prefix: String): String? =
     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         runCatching {
