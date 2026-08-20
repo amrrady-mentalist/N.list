@@ -134,7 +134,9 @@ class MainActivity : ComponentActivity() {
                         NotesApp(
                             notesViewModel = notesViewModel,
                             lockFlowViewModel = lockFlowViewModel,
+                            notesRepo = notesRepo,
                             magicRepo = magicRepo,
+                            themeRepo = themeRepo,
                             isDarkTheme = isDark,
                             onToggleTheme = {
                                 themeMode = if (isDark) ThemeMode.LIGHT else ThemeMode.DARK
@@ -188,7 +190,9 @@ private fun CrashReportScreen(report: String, onDismiss: () -> Unit) {
 private fun NotesApp(
     notesViewModel: NotesViewModel,
     lockFlowViewModel: LockFlowViewModel,
+    notesRepo: NotesRepository,
     magicRepo: MagicRepository,
+    themeRepo: ThemeRepository,
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit
 ) {
@@ -294,6 +298,8 @@ private fun NotesApp(
         }
         is Screen.MagicSettings -> MagicSettingsScreen(
             repo = magicRepo,
+            notesRepo = notesRepo,
+            themeRepo = themeRepo,
             isDarkTheme = isDarkTheme,
             onBack = { screen = Screen.List },
             onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId) }
