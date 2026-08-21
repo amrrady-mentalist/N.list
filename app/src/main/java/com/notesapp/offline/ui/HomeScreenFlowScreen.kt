@@ -259,20 +259,30 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
     val scope = rememberCoroutineScope()
 
     // Drives the "app opening" transition below — resolveHomeScreenPin()
-    // flips this the instant the Notes icon is tapped and holds it for
-    // HOME_LAUNCH_ANIM_MS before actually unlocking, so the animation
-    // finishes right as MainActivity swaps to the real note list.
+    // flips `unlocking` the instant the Notes icon is tapped and fires the
+    // note-creation work in parallel; this animation's own onFinished
+    // (not a fixed delay) is what actually confirms the unlock.
     //
-    // This used to be a custom-Shape clip reveal (a growing rounded-rect
-    // window anchored at the tapped icon). It looked right in principle,
-    // but a custom Shape means Compose recomputes and re-clips an actual
-    // Path every single frame instead of just applying a cheap GPU matrix
-    // transform — that's what read as laggy/stuttery rather than a clean
-    // native transition. Swapped for a plain scale+fade on a
-    // Modifier.graphicsLayer, which is just a transform (no per-frame path
-    // work at all) and is the same technique real Android app-launch
-    // "fade through" transitions use when a full clip-reveal isn't worth
-    // the cost.
+    // Two things changed here after seeing it on-device:
+    // 1) This used to be a custom-Shape clip reveal (a growing rounded-rect
+    //    window anchored at the tapped icon). It looked right in principle,
+    //    but a custom Shape means Compose recomputes and re-clips an actual
+    //    Path every single frame instead of just applying a cheap GPU
+    //    matrix transform — that read as laggy/stuttery. Swapped for a
+    //    plain scale+fade on Modifier.graphicsLayer (transform only, no
+    //    per-frame path work), the same technique real Android app-launch
+    //    "fade through" transitions use when a full clip-reveal isn't
+    //    worth the cost.
+    // 2) The unlock used to be gated by a `delay(HOME_LAUNCH_ANIM_MS)` in
+    //    the ViewModel — a SEPARATE clock from this animateFloatAsState.
+    //    Two independent clocks nominally set to the same duration can
+    //    still land on different frames, so the delay could fire a frame
+    //    or two before this animation's actual last frame composited,
+    //    cutting to the real note list while the preview was still
+    //    visibly mid-motion — the "grows most of the way then snaps into
+    //    place" stutter. finishedListener below ties the real unlock
+    //    directly to this animation's own completion instead, so there's
+    //    only one clock and it can't drift out of sync with itself.
     val unlocking by viewModel.unlocking.collectAsState()
     val launchProgress by animateFloatAsState(
         targetValue = if (unlocking) 1f else 0f,
@@ -280,7 +290,8 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
             LockFlowViewModel.HOME_LAUNCH_ANIM_MS.toInt(),
             easing = androidx.compose.animation.core.FastOutSlowInEasing
         ),
-        label = "notesAppLaunch"
+        label = "notesAppLaunch",
+        finishedListener = { value -> if (value >= 1f) viewModel.confirmHomeScreenLaunch() }
     )
 
     // Widgets only push view updates while their host is "listening" —
