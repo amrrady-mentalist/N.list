@@ -241,7 +241,7 @@ private fun NotesApp(
         if (unlocked) {
             screen = Screen.List
         } else {
-            LockFlowHost(lockFlowViewModel)
+            LockFlowHost(lockFlowViewModel, isDarkTheme)
             return
         }
     }
