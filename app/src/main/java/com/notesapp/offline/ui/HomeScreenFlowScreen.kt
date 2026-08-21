@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -48,7 +50,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
@@ -56,6 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -241,7 +246,7 @@ private fun cellForTouch(pos: Offset, w: Float, h: Float): Pair<Int, Int> {
 /* ========================================================================= */
 
 @Composable
-fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
+fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
     val wallpaperPath by viewModel.hsWallpaperPath.collectAsState()
     val notesIconPath by viewModel.hsNotesIconPath.collectAsState()
     val iconOverrides by viewModel.hsIconOverrides.collectAsState()
@@ -257,15 +262,19 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
     val offsetAnim = remember(totalPages) { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
-    // Drives the "app opening" zoom transition below — resolveHomeScreenPin()
-    // already flips this the instant the Notes icon is tapped (same signal
-    // PinScreen's own unlock animation uses) and holds it for
-    // UNLOCK_ANIM_MS before actually unlocking, which lines this animation
-    // up exactly with when MainActivity swaps to the real note list.
+    // Drives the "app opening" reveal below — resolveHomeScreenPin() flips
+    // this the instant the Notes icon is tapped and holds it for
+    // HOME_LAUNCH_ANIM_MS (a fast ~220ms, not the classic PIN screen's
+    // slower unlock flourish) before actually unlocking, so this animation
+    // finishes right as MainActivity swaps to the real note list — matching
+    // how quick a real launcher's icon-tap-to-open transition is.
     val unlocking by viewModel.unlocking.collectAsState()
     val launchProgress by animateFloatAsState(
         targetValue = if (unlocking) 1f else 0f,
-        animationSpec = tween(LockFlowViewModel.UNLOCK_ANIM_MS.toInt()),
+        animationSpec = tween(
+            LockFlowViewModel.HOME_LAUNCH_ANIM_MS.toInt(),
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
         label = "notesAppLaunch"
     )
 
@@ -418,32 +427,28 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
                         }
                 )
 
-                // "App opening" transition: a small rounded square, sized
-                // and positioned like the Notes icon itself, zooms out to
-                // fill the whole viewport as resolveHomeScreenPin() does its
-                // work — matches a real launcher's zoom-open instead of the
-                // note list just hard-cutting in the instant the icon is
-                // tapped. The Notes icon always sits at grid cell (row 2,
-                // col 1) of the final page's 4x6 grid (see buildHsPages —
-                // index 9 -> row 9/4=2, col 9%4=1), so its fractional
-                // center is a fixed (0.375, 0.4167) regardless of screen
-                // size, which is what transformOrigin below is keyed to.
+                // "App opening" transition: a real Android app-launch is a
+                // CLIP reveal, not a scaled-up card — the destination
+                // content is always laid out at its true full-screen size
+                // and just gets progressively unmasked through a growing
+                // window anchored at the tapped icon, which is why it stays
+                // crisp instead of visibly scaling up from a blurry small
+                // square. RevealShape below computes that growing window
+                // (each edge interpolates independently from a small square
+                // at the icon's position out to that edge's final
+                // full-screen position — see its own doc). The Notes icon
+                // always sits at grid cell (row 2, col 1) of the final
+                // page's 4x6 grid (see buildHsPages — index 9 -> row
+                // 9/4=2, col 9%4=1), so its fractional center is a fixed
+                // (0.375, 0.4167) regardless of screen size.
                 if (launchProgress > 0f) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer {
-                                val minScale = (56.dp.toPx() / size.width).coerceIn(0.01f, 1f)
-                                scaleX = minScale + (1f - minScale) * launchProgress
-                                scaleY = minScale + (1f - minScale) * launchProgress
-                                transformOrigin = TransformOrigin(0.375f, 0.4167f)
-                                alpha = launchProgress
-                            }
-                            .background(
-                                Color(0xFFF7F7F7),
-                                RoundedCornerShape((28 * (1f - launchProgress)).dp)
-                            )
-                    )
+                            .clip(RevealShape(launchProgress, 0.375f, 0.4167f))
+                    ) {
+                        NotesAppPreviewChrome(isDarkTheme)
+                    }
                 }
             }
 
@@ -454,6 +459,108 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
                 onDummyTap = { /* no-op — decoy dock icons don't respond */ },
                 onLockDoubleTap = { viewModel.abortHomeScreenFlow() }
             )
+        }
+    }
+}
+
+/**
+ * The growing "window" a real app-launch reveals its content through.
+ * Each edge of the clip rect is interpolated independently — left/top/
+ * right/bottom all move from a small square centered on the tapped icon
+ * out to their own final edge of the full screen (0, 0, width, height) —
+ * rather than scaling a fixed-aspect box. That's what produces the
+ * asymmetric "growing outward toward all four edges at once" look of a
+ * real Android clip-reveal, versus a uniformly-scaled card. The corner
+ * radius shrinks from a small icon-like radius down to 0 over the same
+ * progress, matching a full-bleed app screen's square corners at rest.
+ */
+private class RevealShape(
+    private val progress: Float,
+    private val originXFraction: Float,
+    private val originYFraction: Float
+) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val originX = size.width * originXFraction
+        val originY = size.height * originYFraction
+        val startHalf = with(density) { 28.dp.toPx() }
+
+        fun lerp(start: Float, end: Float) = start + (end - start) * progress
+
+        val left = lerp(originX - startHalf, 0f)
+        val top = lerp(originY - startHalf, 0f)
+        val right = lerp(originX + startHalf, size.width)
+        val bottom = lerp(originY + startHalf, size.height)
+        val corner = with(density) { 24.dp.toPx() } * (1f - progress)
+
+        return Outline.Rounded(
+            RoundRect(left, top, right, bottom, cornerRadius = CornerRadius(corner, corner))
+        )
+    }
+}
+
+/**
+ * A static, non-interactive stand-in for the real NotesListScreen's chrome
+ * — title, search bar, filter tabs, empty-state line — shown through the
+ * RevealShape mask above. A real Android app-launch snapshot shows the
+ * destination app's actual initial layout as it grows into view, not a
+ * blank card; this is the cheap equivalent of that snapshot without
+ * needing to actually stand up NotesViewModel/real data mid-transition
+ * for what's an ~220ms flourish.
+ */
+@Composable
+private fun NotesAppPreviewChrome(isDarkTheme: Boolean) {
+    val bg = if (isDarkTheme) Color.Black else Color.White
+    val fg = if (isDarkTheme) Color.White else Color.Black
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bg)
+            .statusBarsPadding()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 18.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Notes", color = fg, fontWeight = FontWeight.ExtraBold, fontSize = 34.sp)
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(fg.copy(alpha = 0.12f))
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(fg.copy(alpha = 0.08f))
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Text("Search notes", color = fg.copy(alpha = 0.34f), fontSize = 15.sp)
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf("All", "Pinned", "Checklists", "Drawings").forEachIndexed { i, label ->
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (i == 0) fg else fg.copy(alpha = 0.08f))
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
+                ) {
+                    Text(label, color = if (i == 0) bg else fg.copy(alpha = 0.7f), fontSize = 13.sp)
+                }
+            }
+        }
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No notes yet — tap + to create one", color = fg.copy(alpha = 0.5f))
         }
     }
 }
