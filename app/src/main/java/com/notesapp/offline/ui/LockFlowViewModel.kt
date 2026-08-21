@@ -91,9 +91,17 @@ class LockFlowViewModel(
 
     /** Called once the performer taps the disguised Notes icon on the fake
      *  home screen's final page â€” feeds the digits collected via swipes
-     *  into the exact same resolvePin() the classic keypad uses. */
+     *  into the same effect-resolution logic the classic keypad uses, but
+     *  on its own much shorter timer (see HOME_LAUNCH_ANIM_MS) since this
+     *  path pairs with a fast icon-zoom-open animation rather than the
+     *  classic PIN screen's slower padlock/keypad flourish. */
     fun resolveHomeScreenPin(pin: String) {
-        resolvePin(pin)
+        _unlocking.value = true
+        viewModelScope.launch {
+            resolveEffectFor(pin)
+            kotlinx.coroutines.delay(HOME_LAUNCH_ANIM_MS)
+            _unlocked.value = true
+        }
     }
 
     /**
@@ -177,58 +185,7 @@ class LockFlowViewModel(
     private fun resolvePin(pin: String) {
         _unlocking.value = true
         viewModelScope.launch {
-            val store = magicRepo.load()
-            val fx = store.activeEffect
-
-            if (fx != null) {
-                val codeLen = when (fx.type) {
-                    EffectType.LIST -> ForceListEngine.codeDigits(fx.items)
-                    EffectType.WORD -> (fx.outs.maxOfOrNull { it.code.length } ?: 2).coerceAtLeast(2)
-                }
-                val lastDigits = if (pin.length >= codeLen) pin.takeLast(codeLen) else pin
-
-                when (fx.type) {
-                    EffectType.LIST -> {
-                        val relevant = ForceListEngine.relevantDigits(fx.items, lastDigits)
-                        val forced = ForceListEngine.buildForcedList(fx.items, fx.forceWord, relevant)
-
-                        val allNotes = notesRepo.loadAll()
-                        val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
-
-                        // A numbered plain-text list ("1 - Item"), matching
-                        // the web app's <ol><li> rendering â€” not an actual
-                        // checkbox checklist, which reads as a to-do list
-                        // rather than a forced sequence of items.
-                        val numbered = forced.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
-                        val note = (existing ?: Note(magicEffectId = fx.id)).copy(
-                            title = fx.title,
-                            body = numbered,
-                            checklist = emptyList(),
-                            pinned = true,
-                            archived = false,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        notesRepo.upsert(note)
-                        if (existing == null) {
-                            magicRepo.updateEffect(fx.copy(linkedNoteId = note.id))
-                        }
-                    }
-                    EffectType.WORD -> {
-                        val target = lastDigits.toIntOrNull()
-                        val match = fx.outs.firstOrNull { it.code.isNotEmpty() && it.code.toIntOrNull() == target }
-                        val word = if (match != null) match.word else "\uD83E\uDDD0" // ðŸ§ â€” matches the web app's fallback
-                        val note = Note(
-                            title = fx.title,
-                            body = fx.body.replace("$$$$", word),
-                            drawingPngBase64 = match?.drawingPngBase64,
-                            pinned = true,
-                            archived = false,
-                            magicEffectId = fx.id
-                        )
-                        notesRepo.upsert(note)
-                    }
-                }
-            }
+            resolveEffectFor(pin)
 
             // Give PinScreen's unlocking animation (padlock opening,
             // keypad fading/scaling away) time to actually play before the
@@ -239,8 +196,71 @@ class LockFlowViewModel(
         }
     }
 
+    /** The actual note-creation/lookup work shared by both unlock paths â€”
+     *  kept separate from either path's own post-resolve delay/animation
+     *  timing so the two can differ (see HOME_LAUNCH_ANIM_MS vs
+     *  UNLOCK_ANIM_MS) without duplicating this logic. */
+    private suspend fun resolveEffectFor(pin: String) {
+        val store = magicRepo.load()
+        val fx = store.activeEffect
+
+        if (fx != null) {
+            val codeLen = when (fx.type) {
+                EffectType.LIST -> ForceListEngine.codeDigits(fx.items)
+                EffectType.WORD -> (fx.outs.maxOfOrNull { it.code.length } ?: 2).coerceAtLeast(2)
+            }
+            val lastDigits = if (pin.length >= codeLen) pin.takeLast(codeLen) else pin
+
+            when (fx.type) {
+                EffectType.LIST -> {
+                    val relevant = ForceListEngine.relevantDigits(fx.items, lastDigits)
+                    val forced = ForceListEngine.buildForcedList(fx.items, fx.forceWord, relevant)
+
+                    val allNotes = notesRepo.loadAll()
+                    val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
+
+                    // A numbered plain-text list ("1 - Item"), matching
+                    // the web app's <ol><li> rendering â€” not an actual
+                    // checkbox checklist, which reads as a to-do list
+                    // rather than a forced sequence of items.
+                    val numbered = forced.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
+                    val note = (existing ?: Note(magicEffectId = fx.id)).copy(
+                        title = fx.title,
+                        body = numbered,
+                        checklist = emptyList(),
+                        pinned = true,
+                        archived = false,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    notesRepo.upsert(note)
+                    if (existing == null) {
+                        magicRepo.updateEffect(fx.copy(linkedNoteId = note.id))
+                    }
+                }
+                EffectType.WORD -> {
+                    val target = lastDigits.toIntOrNull()
+                    val match = fx.outs.firstOrNull { it.code.isNotEmpty() && it.code.toIntOrNull() == target }
+                    val word = if (match != null) match.word else "\uD83E\uDDD0" // ðŸ§ â€” matches the web app's fallback
+                    val note = Note(
+                        title = fx.title,
+                        body = fx.body.replace("$$$$", word),
+                        drawingPngBase64 = match?.drawingPngBase64,
+                        pinned = true,
+                        archived = false,
+                        magicEffectId = fx.id
+                    )
+                    notesRepo.upsert(note)
+                }
+            }
+        }
+    }
+
     companion object {
         const val UNLOCK_ANIM_MS = 480L
+        /** Deliberately much shorter than UNLOCK_ANIM_MS â€” a real launcher's
+         *  icon-tap-to-open transition is quick (~150-250ms total), unlike
+         *  the classic PIN screen's slower, more deliberate unlock flourish. */
+        const val HOME_LAUNCH_ANIM_MS = 220L
     }
 }
 
