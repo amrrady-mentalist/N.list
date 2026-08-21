@@ -1,6 +1,7 @@
 package com.notesapp.offline.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -47,6 +48,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
@@ -255,6 +257,18 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
     val offsetAnim = remember(totalPages) { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
+    // Drives the "app opening" zoom transition below — resolveHomeScreenPin()
+    // already flips this the instant the Notes icon is tapped (same signal
+    // PinScreen's own unlock animation uses) and holds it for
+    // UNLOCK_ANIM_MS before actually unlocking, which lines this animation
+    // up exactly with when MainActivity swaps to the real note list.
+    val unlocking by viewModel.unlocking.collectAsState()
+    val launchProgress by animateFloatAsState(
+        targetValue = if (unlocking) 1f else 0f,
+        animationSpec = tween(LockFlowViewModel.UNLOCK_ANIM_MS.toInt()),
+        label = "notesAppLaunch"
+    )
+
     // Widgets only push view updates while their host is "listening" —
     // tied to this screen's own composition lifecycle so it doesn't leak
     // updates while the fake home screen isn't even on screen.
@@ -281,6 +295,11 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
     }
 
     fun handleTap(page: Int, cell: Pair<Int, Int>) {
+        // Ignore further taps once the Notes icon has already fired the
+        // launch animation — otherwise a second tap during the ~480ms
+        // transition would re-trigger resolveHomeScreenPin() and create a
+        // duplicate note.
+        if (unlocking) return
         when (pages.getOrNull(page)?.cells?.get(cell)) {
             is HsCellContent.Notes -> viewModel.resolveHomeScreenPin(pinDigits)
             // Decoy icons are silent no-ops now — tapping one used to pop
@@ -398,6 +417,34 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
                             }
                         }
                 )
+
+                // "App opening" transition: a small rounded square, sized
+                // and positioned like the Notes icon itself, zooms out to
+                // fill the whole viewport as resolveHomeScreenPin() does its
+                // work — matches a real launcher's zoom-open instead of the
+                // note list just hard-cutting in the instant the icon is
+                // tapped. The Notes icon always sits at grid cell (row 2,
+                // col 1) of the final page's 4x6 grid (see buildHsPages —
+                // index 9 -> row 9/4=2, col 9%4=1), so its fractional
+                // center is a fixed (0.375, 0.4167) regardless of screen
+                // size, which is what transformOrigin below is keyed to.
+                if (launchProgress > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val minScale = (56.dp.toPx() / size.width).coerceIn(0.01f, 1f)
+                                scaleX = minScale + (1f - minScale) * launchProgress
+                                scaleY = minScale + (1f - minScale) * launchProgress
+                                transformOrigin = TransformOrigin(0.375f, 0.4167f)
+                                alpha = launchProgress
+                            }
+                            .background(
+                                Color(0xFFF7F7F7),
+                                RoundedCornerShape((28 * (1f - launchProgress)).dp)
+                            )
+                    )
+                }
             }
 
             HsPageDots(totalPages, currentPage)
