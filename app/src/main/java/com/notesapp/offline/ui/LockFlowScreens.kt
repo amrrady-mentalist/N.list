@@ -76,7 +76,18 @@ fun LockFlowHost(viewModel: LockFlowViewModel) {
 
     when (screen) {
         LockScreenState.BLACKOUT -> BlackoutScreen(onDoubleTap = viewModel::onBlackoutDoubleTap)
-        LockScreenState.AMBIENT -> AmbientScreen(backgroundPath = backgroundPath, onSwipeUp = viewModel::onAmbientSwipeUp)
+        LockScreenState.AMBIENT -> {
+            // The PIN screen — always the real destination of an ambient
+            // swipe-up (see onAmbientSwipeUp) — is rendered underneath the
+            // draggable ambient "card" instead of nothing, so dragging it
+            // away actually reveals the PIN keypad coming into view like a
+            // real device's AOD-to-lockscreen transition, rather than a
+            // blank gap that gave the trick away as fake.
+            Box(Modifier.fillMaxSize()) {
+                PinScreen(viewModel, backgroundPath)
+                AmbientScreen(backgroundPath = backgroundPath, onSwipeUp = viewModel::onAmbientSwipeUp)
+            }
+        }
         LockScreenState.PIN -> PinScreen(viewModel, backgroundPath)
         LockScreenState.HOME_SCREEN -> HomeScreenFlowScreen(viewModel)
     }
