@@ -258,9 +258,9 @@ class LockFlowViewModel(
     companion object {
         const val UNLOCK_ANIM_MS = 480L
         /** Deliberately much shorter than UNLOCK_ANIM_MS â€” a real launcher's
-         *  icon-tap-to-open transition is quick (~150-250ms total), unlike
+         *  icon-tap-to-open transition is quick (~150-200ms total), unlike
          *  the classic PIN screen's slower, more deliberate unlock flourish. */
-        const val HOME_LAUNCH_ANIM_MS = 220L
+        const val HOME_LAUNCH_ANIM_MS = 180L
     }
 }
 
