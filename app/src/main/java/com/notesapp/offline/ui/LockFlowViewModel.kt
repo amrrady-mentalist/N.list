@@ -32,14 +32,14 @@ class LockFlowViewModel(
 
     private val _unlocking = MutableStateFlow(false)
     /** True for the brief window between the 4th PIN digit landing and
-     *  [unlocked] actually flipping — PinScreen watches this to play an
+     *  [unlocked] actually flipping â€” PinScreen watches this to play an
      *  "unlocking" animation (padlock opening / keypad dissolving) instead
      *  of just hard-cutting to the note list the instant the digit lands. */
     val unlocking: StateFlow<Boolean> = _unlocking.asStateFlow()
 
     private val _lockBackgroundPath = MutableStateFlow<String?>(null)
     /** Path to the classic-lock background photo, if one's set in Magic
-     *  Settings — read fresh every time the flow (re)starts via reset(). */
+     *  Settings â€” read fresh every time the flow (re)starts via reset(). */
     val lockBackgroundPath: StateFlow<String?> = _lockBackgroundPath.asStateFlow()
 
     // ---- Home Screen disguise mode ----
@@ -62,7 +62,7 @@ class LockFlowViewModel(
     val hsWidgetId: StateFlow<Int> = _hsWidgetId.asStateFlow()
 
     private val _hsRequiredDigits = MutableStateFlow(2)
-    /** How many swipe-pages the fake home screen needs — one digit per
+    /** How many swipe-pages the fake home screen needs â€” one digit per
      *  page, same rule the web app used: the longest configured Word-Force
      *  out code, or the List-Force's item-count digit width, minimum 2. */
     val hsRequiredDigits: StateFlow<Int> = _hsRequiredDigits.asStateFlow()
@@ -80,7 +80,7 @@ class LockFlowViewModel(
         _screen.value = LockScreenState.BLACKOUT
     }
 
-    /** The fake home screen's hidden "Lock" dock icon — double-tapping it
+    /** The fake home screen's hidden "Lock" dock icon â€” double-tapping it
      *  bails out of the disguise entirely (no PIN resolved, no note
      *  touched) straight back to the real note list. Reuses the same
      *  `unlocked` signal the successful-trick path uses since both cases
@@ -90,31 +90,22 @@ class LockFlowViewModel(
     }
 
     /** Called once the performer taps the disguised Notes icon on the fake
-     *  home screen's final page — feeds the digits collected via swipes
-     *  into the same effect-resolution logic the classic keypad uses.
-     *  Fires the note-creation work immediately in parallel with the
-     *  zoom/fade animation the composable plays; the actual unlock/screen
-     *  swap is triggered separately by [confirmHomeScreenLaunch], called
-     *  from that animation's own onFinished — see the comment there for
-     *  why it isn't just a fixed delay here. */
+     *  home screen's final page â€” resolves the effect (same logic the
+     *  classic keypad uses) and unlocks immediately once that's done, with
+     *  no animation on this path at all. There WAS a zoom/fade transition
+     *  here, but HomeScreenFlowScreen and the real note list are two
+     *  entirely separate composables â€” switching between them is always a
+     *  hard cut in Compose, no matter how precisely an animation on the
+     *  fake-screen side is timed, since there's no cross-fade between the
+     *  two composable trees. That mismatch was reading as a stutter/snap
+     *  no matter how the timing was tuned. Matching the same instant,
+     *  no-animation switch [abortHomeScreenFlow] already uses removes the
+     *  thing that could desync in the first place. */
     fun resolveHomeScreenPin(pin: String) {
-        _unlocking.value = true
-        viewModelScope.launch { resolveEffectFor(pin) }
-    }
-
-    /** Called by HomeScreenFlowScreen's launch animation once it has
-     *  actually finished on screen — NOT a fixed delay racing the
-     *  animation's own clock. A `viewModelScope.launch { delay(...) }`
-     *  here used to run on a totally different clock than Compose's
-     *  animateFloatAsState, so the two could land on different frames:
-     *  the delay would fire a frame or two before the animation's last
-     *  frame actually composited, cutting to the real note list while the
-     *  fake preview was still mid-motion — the "snaps into place instead
-     *  of finishing smoothly" stutter. Driving the unlock off the
-     *  animation's own finishedListener instead means there's only one
-     *  clock, so it can't drift out of sync with what's on screen. */
-    fun confirmHomeScreenLaunch() {
-        _unlocked.value = true
+        viewModelScope.launch {
+            resolveEffectFor(pin)
+            _unlocked.value = true
+        }
     }
 
     /**
@@ -180,7 +171,7 @@ class LockFlowViewModel(
 
     /**
      * Direct port of the web app's resolvePin(): ANY 4 digits resolve and
-     * unlock — there's no "correct" PIN to fail on. The digits are only
+     * unlock â€” there's no "correct" PIN to fail on. The digits are only
      * ever used as positional/lookup input for whichever effect is active.
      *
      * - No active effect: unlocks with no note created (matches the JS,
@@ -188,10 +179,10 @@ class LockFlowViewModel(
      * - LIST effect: same force-list math as before, now keyed off the
      *   active effect specifically rather than a single global effect.
      * - WORD effect: looks up the out whose code matches the PIN's last
-     *   N digits (N = the longest configured out code, min 2 — mirrors
+     *   N digits (N = the longest configured out code, min 2 â€” mirrors
      *   the JS's codeLen expansion), substitutes the matched word (or a
-     *   "🧐" placeholder if nothing matches) into the body wherever
-     *   "$$$$" appears, and creates a fresh note every time — the web
+     *   "ðŸ§" placeholder if nothing matches) into the body wherever
+     *   "$$$$" appears, and creates a fresh note every time â€” the web
      *   app never reuses/updates a previous note for word effects, only
      *   for list effects.
      */
@@ -202,17 +193,17 @@ class LockFlowViewModel(
 
             // Give PinScreen's unlocking animation (padlock opening,
             // keypad fading/scaling away) time to actually play before the
-            // screen gets swapped out from under it — the note work above
+            // screen gets swapped out from under it â€” the note work above
             // already happened, this delay is purely for the visual.
             kotlinx.coroutines.delay(UNLOCK_ANIM_MS)
             _unlocked.value = true
         }
     }
 
-    /** The actual note-creation/lookup work shared by both unlock paths —
-     *  kept separate from either path's own post-resolve delay/animation
-     *  timing so the two can differ (see HOME_LAUNCH_ANIM_MS vs
-     *  UNLOCK_ANIM_MS) without duplicating this logic. */
+    /** The actual note-creation/lookup work shared by both unlock paths â€”
+     *  kept separate from resolvePin's own post-resolve animation delay
+     *  since only the classic PIN path needs one (see resolveHomeScreenPin,
+     *  which unlocks immediately with no animation at all). */
     private suspend fun resolveEffectFor(pin: String) {
         val store = magicRepo.load()
         val fx = store.activeEffect
@@ -233,7 +224,7 @@ class LockFlowViewModel(
                     val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
 
                     // A numbered plain-text list ("1 - Item"), matching
-                    // the web app's <ol><li> rendering — not an actual
+                    // the web app's <ol><li> rendering â€” not an actual
                     // checkbox checklist, which reads as a to-do list
                     // rather than a forced sequence of items.
                     val numbered = forced.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
@@ -253,7 +244,7 @@ class LockFlowViewModel(
                 EffectType.WORD -> {
                     val target = lastDigits.toIntOrNull()
                     val match = fx.outs.firstOrNull { it.code.isNotEmpty() && it.code.toIntOrNull() == target }
-                    val word = if (match != null) match.word else "\uD83E\uDDD0" // 🧐 — matches the web app's fallback
+                    val word = if (match != null) match.word else "\uD83E\uDDD0" // ðŸ§ â€” matches the web app's fallback
                     val note = Note(
                         title = fx.title,
                         body = fx.body.replace("$$$$", word),
@@ -270,10 +261,6 @@ class LockFlowViewModel(
 
     companion object {
         const val UNLOCK_ANIM_MS = 480L
-        /** Deliberately much shorter than UNLOCK_ANIM_MS — a real launcher's
-         *  icon-tap-to-open transition is quick (~150-200ms total), unlike
-         *  the classic PIN screen's slower, more deliberate unlock flourish. */
-        const val HOME_LAUNCH_ANIM_MS = 180L
     }
 }
 
