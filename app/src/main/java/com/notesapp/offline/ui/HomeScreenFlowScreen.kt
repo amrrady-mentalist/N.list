@@ -50,8 +50,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
@@ -59,8 +57,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -262,12 +258,21 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
     val offsetAnim = remember(totalPages) { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
-    // Drives the "app opening" reveal below — resolveHomeScreenPin() flips
-    // this the instant the Notes icon is tapped and holds it for
-    // HOME_LAUNCH_ANIM_MS (a fast ~220ms, not the classic PIN screen's
-    // slower unlock flourish) before actually unlocking, so this animation
-    // finishes right as MainActivity swaps to the real note list — matching
-    // how quick a real launcher's icon-tap-to-open transition is.
+    // Drives the "app opening" transition below — resolveHomeScreenPin()
+    // flips this the instant the Notes icon is tapped and holds it for
+    // HOME_LAUNCH_ANIM_MS before actually unlocking, so the animation
+    // finishes right as MainActivity swaps to the real note list.
+    //
+    // This used to be a custom-Shape clip reveal (a growing rounded-rect
+    // window anchored at the tapped icon). It looked right in principle,
+    // but a custom Shape means Compose recomputes and re-clips an actual
+    // Path every single frame instead of just applying a cheap GPU matrix
+    // transform — that's what read as laggy/stuttery rather than a clean
+    // native transition. Swapped for a plain scale+fade on a
+    // Modifier.graphicsLayer, which is just a transform (no per-frame path
+    // work at all) and is the same technique real Android app-launch
+    // "fade through" transitions use when a full clip-reveal isn't worth
+    // the cost.
     val unlocking by viewModel.unlocking.collectAsState()
     val launchProgress by animateFloatAsState(
         targetValue = if (unlocking) 1f else 0f,
@@ -427,25 +432,22 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
                         }
                 )
 
-                // "App opening" transition: a real Android app-launch is a
-                // CLIP reveal, not a scaled-up card — the destination
-                // content is always laid out at its true full-screen size
-                // and just gets progressively unmasked through a growing
-                // window anchored at the tapped icon, which is why it stays
-                // crisp instead of visibly scaling up from a blurry small
-                // square. RevealShape below computes that growing window
-                // (each edge interpolates independently from a small square
-                // at the icon's position out to that edge's final
-                // full-screen position — see its own doc). The Notes icon
-                // always sits at grid cell (row 2, col 1) of the final
-                // page's 4x6 grid (see buildHsPages — index 9 -> row
-                // 9/4=2, col 9%4=1), so its fractional center is a fixed
-                // (0.375, 0.4167) regardless of screen size.
+                // "App opening" transition: content is laid out at full
+                // screen size the whole time (never re-laid-out mid-
+                // animation) and just scales up slightly from/fades in via
+                // graphicsLayer — a cheap GPU transform, not a per-frame
+                // clip-path recompute. See the launchProgress comment above
+                // for why this replaced the earlier clip-reveal version.
                 if (launchProgress > 0f) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .clip(RevealShape(launchProgress, 0.375f, 0.4167f))
+                            .graphicsLayer {
+                                val scale = 0.94f + 0.06f * launchProgress
+                                scaleX = scale
+                                scaleY = scale
+                                alpha = launchProgress
+                            }
                     ) {
                         NotesAppPreviewChrome(isDarkTheme)
                     }
@@ -464,48 +466,13 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
 }
 
 /**
- * The growing "window" a real app-launch reveals its content through.
- * Each edge of the clip rect is interpolated independently — left/top/
- * right/bottom all move from a small square centered on the tapped icon
- * out to their own final edge of the full screen (0, 0, width, height) —
- * rather than scaling a fixed-aspect box. That's what produces the
- * asymmetric "growing outward toward all four edges at once" look of a
- * real Android clip-reveal, versus a uniformly-scaled card. The corner
- * radius shrinks from a small icon-like radius down to 0 over the same
- * progress, matching a full-bleed app screen's square corners at rest.
- */
-private class RevealShape(
-    private val progress: Float,
-    private val originXFraction: Float,
-    private val originYFraction: Float
-) : Shape {
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val originX = size.width * originXFraction
-        val originY = size.height * originYFraction
-        val startHalf = with(density) { 28.dp.toPx() }
-
-        fun lerp(start: Float, end: Float) = start + (end - start) * progress
-
-        val left = lerp(originX - startHalf, 0f)
-        val top = lerp(originY - startHalf, 0f)
-        val right = lerp(originX + startHalf, size.width)
-        val bottom = lerp(originY + startHalf, size.height)
-        val corner = with(density) { 24.dp.toPx() } * (1f - progress)
-
-        return Outline.Rounded(
-            RoundRect(left, top, right, bottom, cornerRadius = CornerRadius(corner, corner))
-        )
-    }
-}
-
-/**
  * A static, non-interactive stand-in for the real NotesListScreen's chrome
- * — title, search bar, filter tabs, empty-state line — shown through the
- * RevealShape mask above. A real Android app-launch snapshot shows the
- * destination app's actual initial layout as it grows into view, not a
- * blank card; this is the cheap equivalent of that snapshot without
- * needing to actually stand up NotesViewModel/real data mid-transition
- * for what's an ~220ms flourish.
+ * — title, search bar, filter tabs, empty-state line — shown during the
+ * fade/scale transition above. A real Android app-launch shows the
+ * destination app's actual initial layout as it comes into view, not a
+ * blank card; this is the cheap equivalent of that without needing to
+ * actually stand up NotesViewModel/real data mid-transition for what's a
+ * sub-200ms flourish.
  */
 @Composable
 private fun NotesAppPreviewChrome(isDarkTheme: Boolean) {
