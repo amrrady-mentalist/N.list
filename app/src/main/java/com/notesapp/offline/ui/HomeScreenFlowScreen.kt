@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -242,7 +241,7 @@ private fun cellForTouch(pos: Offset, w: Float, h: Float): Pair<Int, Int> {
 /* ========================================================================= */
 
 @Composable
-fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
+fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
     val wallpaperPath by viewModel.hsWallpaperPath.collectAsState()
     val notesIconPath by viewModel.hsNotesIconPath.collectAsState()
     val iconOverrides by viewModel.hsIconOverrides.collectAsState()
@@ -257,42 +256,6 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
     var pinDigits by remember(totalPages) { mutableStateOf("") }
     val offsetAnim = remember(totalPages) { Animatable(0f) }
     val scope = rememberCoroutineScope()
-
-    // Drives the "app opening" transition below — resolveHomeScreenPin()
-    // flips `unlocking` the instant the Notes icon is tapped and fires the
-    // note-creation work in parallel; this animation's own onFinished
-    // (not a fixed delay) is what actually confirms the unlock.
-    //
-    // Two things changed here after seeing it on-device:
-    // 1) This used to be a custom-Shape clip reveal (a growing rounded-rect
-    //    window anchored at the tapped icon). It looked right in principle,
-    //    but a custom Shape means Compose recomputes and re-clips an actual
-    //    Path every single frame instead of just applying a cheap GPU
-    //    matrix transform — that read as laggy/stuttery. Swapped for a
-    //    plain scale+fade on Modifier.graphicsLayer (transform only, no
-    //    per-frame path work), the same technique real Android app-launch
-    //    "fade through" transitions use when a full clip-reveal isn't
-    //    worth the cost.
-    // 2) The unlock used to be gated by a `delay(HOME_LAUNCH_ANIM_MS)` in
-    //    the ViewModel — a SEPARATE clock from this animateFloatAsState.
-    //    Two independent clocks nominally set to the same duration can
-    //    still land on different frames, so the delay could fire a frame
-    //    or two before this animation's actual last frame composited,
-    //    cutting to the real note list while the preview was still
-    //    visibly mid-motion — the "grows most of the way then snaps into
-    //    place" stutter. finishedListener below ties the real unlock
-    //    directly to this animation's own completion instead, so there's
-    //    only one clock and it can't drift out of sync with itself.
-    val unlocking by viewModel.unlocking.collectAsState()
-    val launchProgress by animateFloatAsState(
-        targetValue = if (unlocking) 1f else 0f,
-        animationSpec = tween(
-            LockFlowViewModel.HOME_LAUNCH_ANIM_MS.toInt(),
-            easing = androidx.compose.animation.core.FastOutSlowInEasing
-        ),
-        label = "notesAppLaunch",
-        finishedListener = { value -> if (value >= 1f) viewModel.confirmHomeScreenLaunch() }
-    )
 
     // Widgets only push view updates while their host is "listening" —
     // tied to this screen's own composition lifecycle so it doesn't leak
@@ -319,14 +282,18 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
         topBarText = if (currentPage == totalPages - 1) formatPeekTime(pinDigits) else realTime
     }
 
+    // Guards against a rapid double-tap on the Notes icon firing
+    // resolveHomeScreenPin() twice (and creating a duplicate note) in the
+    // brief window between the tap and the screen actually switching away.
+    var notesTapped by remember { mutableStateOf(false) }
+
     fun handleTap(page: Int, cell: Pair<Int, Int>) {
-        // Ignore further taps once the Notes icon has already fired the
-        // launch animation — otherwise a second tap during the ~480ms
-        // transition would re-trigger resolveHomeScreenPin() and create a
-        // duplicate note.
-        if (unlocking) return
+        if (notesTapped) return
         when (pages.getOrNull(page)?.cells?.get(cell)) {
-            is HsCellContent.Notes -> viewModel.resolveHomeScreenPin(pinDigits)
+            is HsCellContent.Notes -> {
+                notesTapped = true
+                viewModel.resolveHomeScreenPin(pinDigits)
+            }
             // Decoy icons are silent no-ops now — tapping one used to pop
             // an "App not installed" toast, which was an unwanted tell.
             is HsCellContent.App -> Unit
@@ -442,27 +409,6 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
                             }
                         }
                 )
-
-                // "App opening" transition: content is laid out at full
-                // screen size the whole time (never re-laid-out mid-
-                // animation) and just scales up slightly from/fades in via
-                // graphicsLayer — a cheap GPU transform, not a per-frame
-                // clip-path recompute. See the launchProgress comment above
-                // for why this replaced the earlier clip-reveal version.
-                if (launchProgress > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                val scale = 0.94f + 0.06f * launchProgress
-                                scaleX = scale
-                                scaleY = scale
-                                alpha = launchProgress
-                            }
-                    ) {
-                        NotesAppPreviewChrome(isDarkTheme)
-                    }
-                }
             }
 
             HsPageDots(totalPages, currentPage)
@@ -472,73 +418,6 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
                 onDummyTap = { /* no-op — decoy dock icons don't respond */ },
                 onLockDoubleTap = { viewModel.abortHomeScreenFlow() }
             )
-        }
-    }
-}
-
-/**
- * A static, non-interactive stand-in for the real NotesListScreen's chrome
- * — title, search bar, filter tabs, empty-state line — shown during the
- * fade/scale transition above. A real Android app-launch shows the
- * destination app's actual initial layout as it comes into view, not a
- * blank card; this is the cheap equivalent of that without needing to
- * actually stand up NotesViewModel/real data mid-transition for what's a
- * sub-200ms flourish.
- */
-@Composable
-private fun NotesAppPreviewChrome(isDarkTheme: Boolean) {
-    val bg = if (isDarkTheme) Color.Black else Color.White
-    val fg = if (isDarkTheme) Color.White else Color.Black
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(bg)
-            .statusBarsPadding()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Notes", color = fg, fontWeight = FontWeight.ExtraBold, fontSize = 34.sp)
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(fg.copy(alpha = 0.12f))
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(fg.copy(alpha = 0.08f))
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-        ) {
-            Text("Search notes", color = fg.copy(alpha = 0.34f), fontSize = 15.sp)
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf("All", "Pinned", "Checklists", "Drawings").forEachIndexed { i, label ->
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(if (i == 0) fg else fg.copy(alpha = 0.08f))
-                        .padding(horizontal = 14.dp, vertical = 7.dp)
-                ) {
-                    Text(label, color = if (i == 0) bg else fg.copy(alpha = 0.7f), fontSize = 13.sp)
-                }
-            }
-        }
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No notes yet — tap + to create one", color = fg.copy(alpha = 0.5f))
         }
     }
 }
