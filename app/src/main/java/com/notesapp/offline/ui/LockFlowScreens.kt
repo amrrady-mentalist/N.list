@@ -70,7 +70,7 @@ import java.util.Locale
 import kotlin.math.abs
 
 @Composable
-fun LockFlowHost(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
+fun LockFlowHost(viewModel: LockFlowViewModel) {
     val screen by viewModel.screen.collectAsState()
     val backgroundPath by viewModel.lockBackgroundPath.collectAsState()
 
@@ -89,7 +89,7 @@ fun LockFlowHost(viewModel: LockFlowViewModel, isDarkTheme: Boolean) {
             }
         }
         LockScreenState.PIN -> PinScreen(viewModel, backgroundPath)
-        LockScreenState.HOME_SCREEN -> HomeScreenFlowScreen(viewModel, isDarkTheme)
+        LockScreenState.HOME_SCREEN -> HomeScreenFlowScreen(viewModel)
     }
 }
 
