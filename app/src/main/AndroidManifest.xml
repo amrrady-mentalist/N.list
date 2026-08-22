@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- The Inject feature's GET (fetch --value--) and POST (send Sum/Peek
+         results) both need this — without it, HttpURLConnection fails with
+         a SecurityException/UnknownHostException-style permission denial
+         before ever reaching the network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Needed on Android 11+ (API 30+) package visibility to actually see
          other installed apps' launcher entries/icons — without this,
          queryIntentActivities() silently returns almost nothing and the
@@ -33,6 +39,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.NotesNative">
 
         <activity
