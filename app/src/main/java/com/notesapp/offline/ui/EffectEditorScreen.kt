@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -221,7 +222,7 @@ fun EffectEditorScreen(
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 18.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TypePill(
@@ -237,9 +238,33 @@ fun EffectEditorScreen(
                         modifier = Modifier.weight(1f)
                     ) { persist(current.copy(type = EffectType.LIST)) }
                 }
+                // Inject Reveal (send mode) — a separate row rather than
+                // cramming 4 pills into one: these two don't share any
+                // fields with Word/List Force (no title/body/items at all,
+                // just the two trigger toggles below), so visually
+                // grouping them apart from the note-authoring types reads
+                // clearer than one uniform row of four.
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TypePill(
+                        label = "Inject: Sum",
+                        selected = current.type == EffectType.INJECT_SUM,
+                        fgColor = fgColor,
+                        modifier = Modifier.weight(1f)
+                    ) { persist(current.copy(type = EffectType.INJECT_SUM)) }
+                    TypePill(
+                        label = "Inject: Peek",
+                        selected = current.type == EffectType.INJECT_PEEK,
+                        fgColor = fgColor,
+                        modifier = Modifier.weight(1f)
+                    ) { persist(current.copy(type = EffectType.INJECT_PEEK)) }
+                }
             }
 
-            if (current.type == EffectType.WORD) {
+            when (current.type) {
+                EffectType.WORD -> {
                 item {
                     FieldLabel("Note title", fgColor)
                     GlassInput(
@@ -288,7 +313,8 @@ fun EffectEditorScreen(
                         persist(current.copy(outs = current.outs + EffectOut()))
                     }
                 }
-            } else {
+                }
+                EffectType.LIST -> {
                 item {
                     FieldLabel("Note title", fgColor)
                     GlassInput(
@@ -336,9 +362,101 @@ fun EffectEditorScreen(
                         modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
                     )
                 }
+                }
+                EffectType.INJECT_SUM, EffectType.INJECT_PEEK -> {
+                item {
+                    Text(
+                        if (current.type == EffectType.INJECT_SUM) {
+                            "Reads whatever's on screen in the currently-open note, adds up every line that's purely a number, and sends the total to your Inject API — e.g. three lines of \"72882\", \"82829\", \"77773\" send \"233484\"."
+                        } else {
+                            "Reads whatever's on screen in the currently-open note, as-is, and sends it to your Inject API — e.g. a celebrity name your spectator wrote down."
+                        },
+                        color = fgColor.copy(alpha = 0.6f),
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    Text(
+                        "Requires Inject Mode and an API URL set in Magic Settings. Set this active, then open any note — one or both triggers below arm for as long as that note stays open.",
+                        color = fgColor.copy(alpha = 0.34f),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(bottom = 20.dp)
+                    )
+
+                    FieldLabel("Trigger", fgColor)
+                    TriggerToggleRow(
+                        label = "Proximity sensor",
+                        sublabel = "Wave a hand over it, or set the phone face down / against a chest",
+                        checked = current.sendUseProximity,
+                        fgColor = fgColor,
+                        onToggle = { persist(current.copy(sendUseProximity = it)) }
+                    )
+                    TriggerToggleRow(
+                        label = "Volume button",
+                        sublabel = "Press either volume button — it won't actually change the volume while armed",
+                        checked = current.sendUseVolumeButton,
+                        fgColor = fgColor,
+                        onToggle = { persist(current.copy(sendUseVolumeButton = it)) },
+                        modifier = Modifier.padding(bottom = 24.dp)
+                    )
+                }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun TriggerToggleRow(
+    label: String,
+    sublabel: String,
+    checked: Boolean,
+    fgColor: Color,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .glassPanel(radius = GlassRadius.sm, tint = fgColor)
+            .clickable { onToggle(!checked) }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = fgColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                sublabel,
+                color = fgColor.copy(alpha = 0.4f),
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .size(width = 44.dp, height = 26.dp)
+                .clip(RoundedCornerShape(100))
+                .background(
+                    if (checked) androidx.compose.ui.graphics.Brush.linearGradient(listOf(AccentA, AccentB))
+                    else androidx.compose.ui.graphics.Brush.linearGradient(
+                        listOf(fgColor.copy(alpha = 0.16f), fgColor.copy(alpha = 0.16f))
+                    )
+                )
+                .padding(3.dp),
+            contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(if (checked) Color(0xFF0A0A12) else fgColor.copy(alpha = 0.7f))
+            )
+        }
+    }
+    Spacer(modifier = Modifier.height(10.dp))
 }
 
 @Composable
