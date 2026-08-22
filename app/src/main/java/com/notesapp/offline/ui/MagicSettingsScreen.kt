@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -537,6 +538,59 @@ fun MagicSettingsScreen(
                         )
                     }
 
+                    SectionLabel("Inject", fgColor, topPadding = 24.dp)
+                    Text(
+                        "One URL, used both ways: fetched to fill in \u2013\u2013value\u2013\u2013 wherever it appears in an effect, and posted to when an Inject Reveal (Sum/Peek) effect's trigger fires.",
+                        color = fgColor.copy(alpha = 0.34f),
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                    ApiUrlField(
+                        value = store.apiUrl ?: "",
+                        onValueChange = { persist(store.copy(apiUrl = it)) },
+                        fgColor = fgColor
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                            .glassPanel(radius = GlassRadius.sm, tint = fgColor)
+                            .clickable { persist(store.copy(injectModeOn = !store.injectModeOn)) }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Inject Mode", color = fgColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Off: \u2013\u2013value\u2013\u2013 is stripped out and nothing is ever sent, no matter what's set below.",
+                                color = fgColor.copy(alpha = 0.4f),
+                                fontSize = 11.5.sp,
+                                lineHeight = 15.sp,
+                                modifier = Modifier.padding(top = 2.dp, end = 10.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(width = 44.dp, height = 26.dp)
+                                .clip(RoundedCornerShape(100))
+                                .background(
+                                    if (store.injectModeOn) Brush.linearGradient(listOf(AccentA, AccentB))
+                                    else Brush.linearGradient(listOf(fgColor.copy(alpha = 0.16f), fgColor.copy(alpha = 0.16f)))
+                                )
+                                .padding(3.dp),
+                            contentAlignment = if (store.injectModeOn) Alignment.CenterEnd else Alignment.CenterStart
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .background(if (store.injectModeOn) Color(0xFF0A0A12) else fgColor.copy(alpha = 0.7f))
+                            )
+                        }
+                    }
+
                     SectionLabel("Effects", fgColor, topPadding = 24.dp)
                 }
             }
@@ -718,6 +772,28 @@ private fun LockModePill(label: String, selected: Boolean, fgColor: Color, onCli
 }
 
 @Composable
+private fun ApiUrlField(value: String, onValueChange: (String) -> Unit, fgColor: Color) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassPanel(radius = GlassRadius.sm, tint = fgColor)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        if (value.isEmpty()) {
+            Text("https://your-api.example.com/...", color = fgColor.copy(alpha = 0.34f), fontSize = 14.sp)
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = TextStyle(color = fgColor, fontSize = 14.sp),
+            cursorBrush = SolidColor(fgColor),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
 private fun GlassPill(label: String, textColor: Color, onClick: () -> Unit) {
     Box(
         modifier = Modifier
@@ -810,12 +886,23 @@ private fun EffectCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val metaText = if (effect.type == EffectType.LIST) {
-        val n = effect.items.count { it.isNotBlank() }
-        "List Force · $n " + if (n == 1) "item" else "items"
-    } else {
-        val n = effect.outs.size
-        "$n " + if (n == 1) "out" else "outs"
+    val metaText = when (effect.type) {
+        EffectType.LIST -> {
+            val n = effect.items.count { it.isNotBlank() }
+            "List Force · $n " + if (n == 1) "item" else "items"
+        }
+        EffectType.WORD -> {
+            val n = effect.outs.size
+            "Word · $n " + if (n == 1) "out" else "outs"
+        }
+        EffectType.INJECT_SUM, EffectType.INJECT_PEEK -> {
+            val label = if (effect.type == EffectType.INJECT_SUM) "Inject: Sum" else "Inject: Peek"
+            val triggers = buildList {
+                if (effect.sendUseProximity) add("proximity")
+                if (effect.sendUseVolumeButton) add("volume")
+            }
+            if (triggers.isEmpty()) "$label · no trigger set" else "$label · " + triggers.joinToString(" + ")
+        }
     }
 
     Column(
