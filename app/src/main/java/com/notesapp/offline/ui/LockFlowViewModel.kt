@@ -5,20 +5,30 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.ForceListEngine
+import com.notesapp.offline.data.InjectApiClient
 import com.notesapp.offline.data.LockMode
 import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NotesRepository
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class LockScreenState { BLACKOUT, AMBIENT, PIN, HOME_SCREEN }
 
+/** The literal placeholder token a MagicEffect's text fields can contain —
+ *  see MagicEffect's own doc for the full behavior. */
+const val INJECT_VALUE_TOKEN = "--value--"
+
 class LockFlowViewModel(
     private val notesRepo: NotesRepository,
-    private val magicRepo: MagicRepository
+    private val magicRepo: MagicRepository,
+    private val injectApiClient: InjectApiClient = InjectApiClient()
 ) : ViewModel() {
 
     private val _screen = MutableStateFlow(LockScreenState.BLACKOUT)
@@ -32,14 +42,14 @@ class LockFlowViewModel(
 
     private val _unlocking = MutableStateFlow(false)
     /** True for the brief window between the 4th PIN digit landing and
-     *  [unlocked] actually flipping â€” PinScreen watches this to play an
+     *  [unlocked] actually flipping — PinScreen watches this to play an
      *  "unlocking" animation (padlock opening / keypad dissolving) instead
      *  of just hard-cutting to the note list the instant the digit lands. */
     val unlocking: StateFlow<Boolean> = _unlocking.asStateFlow()
 
     private val _lockBackgroundPath = MutableStateFlow<String?>(null)
     /** Path to the classic-lock background photo, if one's set in Magic
-     *  Settings â€” read fresh every time the flow (re)starts via reset(). */
+     *  Settings — read fresh every time the flow (re)starts via reset(). */
     val lockBackgroundPath: StateFlow<String?> = _lockBackgroundPath.asStateFlow()
 
     // ---- Home Screen disguise mode ----
@@ -62,10 +72,36 @@ class LockFlowViewModel(
     val hsWidgetId: StateFlow<Int> = _hsWidgetId.asStateFlow()
 
     private val _hsRequiredDigits = MutableStateFlow(2)
-    /** How many swipe-pages the fake home screen needs â€” one digit per
+    /** How many swipe-pages the fake home screen needs — one digit per
      *  page, same rule the web app used: the longest configured Word-Force
      *  out code, or the List-Force's item-count digit width, minimum 2. */
     val hsRequiredDigits: StateFlow<Int> = _hsRequiredDigits.asStateFlow()
+
+    // ---- Inject API (receive side) ----
+    /** Kicked off the instant the first PIN digit lands (see
+     *  [triggerInjectPrefetch]) rather than waiting until the PIN is fully
+     *  entered — a real network round-trip needs however much of a head
+     *  start it can get before resolveEffectFor() actually needs the
+     *  result. Null once consumed/reset by [prepare]. */
+    private var injectFetchDeferred: Deferred<String?>? = null
+
+    /** Called by both PIN-entry paths (classic keypad's onPinKey, and the
+     *  fake home screen's swipe handler) the moment their FIRST digit is
+     *  entered/swiped — not on every digit, just the first, since that's
+     *  the earliest possible moment to start the GET and the only one that
+     *  matters for giving it a head start. Safe to call even when Inject
+     *  Mode is off or no URL is set: the check happens inside the async
+     *  block itself, so this is always a cheap, fire-and-forget call from
+     *  the caller's perspective. */
+    fun triggerInjectPrefetch() {
+        if (injectFetchDeferred != null) return // already in flight for this PIN attempt
+        injectFetchDeferred = viewModelScope.async(Dispatchers.IO) {
+            val store = magicRepo.load()
+            val url = store.apiUrl
+            if (!store.injectModeOn || url.isNullOrBlank()) return@async null
+            injectApiClient.fetchValue(url)
+        }
+    }
 
     fun onBlackoutDoubleTap() {
         _screen.value = LockScreenState.AMBIENT
@@ -80,7 +116,7 @@ class LockFlowViewModel(
         _screen.value = LockScreenState.BLACKOUT
     }
 
-    /** The fake home screen's hidden "Lock" dock icon â€” double-tapping it
+    /** The fake home screen's hidden "Lock" dock icon — double-tapping it
      *  bails out of the disguise entirely (no PIN resolved, no note
      *  touched) straight back to the real note list. Reuses the same
      *  `unlocked` signal the successful-trick path uses since both cases
@@ -90,11 +126,11 @@ class LockFlowViewModel(
     }
 
     /** Called once the performer taps the disguised Notes icon on the fake
-     *  home screen's final page â€” resolves the effect (same logic the
+     *  home screen's final page — resolves the effect (same logic the
      *  classic keypad uses) and unlocks immediately once that's done, with
      *  no animation on this path at all. There WAS a zoom/fade transition
      *  here, but HomeScreenFlowScreen and the real note list are two
-     *  entirely separate composables â€” switching between them is always a
+     *  entirely separate composables — switching between them is always a
      *  hard cut in Compose, no matter how precisely an animation on the
      *  fake-screen side is timed, since there's no cross-fade between the
      *  two composable trees. That mismatch was reading as a stutter/snap
@@ -125,6 +161,7 @@ class LockFlowViewModel(
         _pinDigits.value = ""
         _unlocked.value = false
         _unlocking.value = false
+        injectFetchDeferred = null
 
         val store = magicRepo.load()
         _lockBackgroundPath.value = store.lockBackgroundPath
@@ -163,6 +200,7 @@ class LockFlowViewModel(
             else -> {
                 if (_pinDigits.value.length < 4) {
                     _pinDigits.value += key
+                    if (_pinDigits.value.length == 1) triggerInjectPrefetch()
                     if (_pinDigits.value.length == 4) resolvePin(_pinDigits.value)
                 }
             }
@@ -171,7 +209,7 @@ class LockFlowViewModel(
 
     /**
      * Direct port of the web app's resolvePin(): ANY 4 digits resolve and
-     * unlock â€” there's no "correct" PIN to fail on. The digits are only
+     * unlock — there's no "correct" PIN to fail on. The digits are only
      * ever used as positional/lookup input for whichever effect is active.
      *
      * - No active effect: unlocks with no note created (matches the JS,
@@ -179,10 +217,10 @@ class LockFlowViewModel(
      * - LIST effect: same force-list math as before, now keyed off the
      *   active effect specifically rather than a single global effect.
      * - WORD effect: looks up the out whose code matches the PIN's last
-     *   N digits (N = the longest configured out code, min 2 â€” mirrors
+     *   N digits (N = the longest configured out code, min 2 — mirrors
      *   the JS's codeLen expansion), substitutes the matched word (or a
-     *   "ðŸ§" placeholder if nothing matches) into the body wherever
-     *   "$$$$" appears, and creates a fresh note every time â€” the web
+     *   "🧐" placeholder if nothing matches) into the body wherever
+     *   "$$$$" appears, and creates a fresh note every time — the web
      *   app never reuses/updates a previous note for word effects, only
      *   for list effects.
      */
@@ -193,14 +231,14 @@ class LockFlowViewModel(
 
             // Give PinScreen's unlocking animation (padlock opening,
             // keypad fading/scaling away) time to actually play before the
-            // screen gets swapped out from under it â€” the note work above
+            // screen gets swapped out from under it — the note work above
             // already happened, this delay is purely for the visual.
             kotlinx.coroutines.delay(UNLOCK_ANIM_MS)
             _unlocked.value = true
         }
     }
 
-    /** The actual note-creation/lookup work shared by both unlock paths â€”
+    /** The actual note-creation/lookup work shared by both unlock paths —
      *  kept separate from resolvePin's own post-resolve animation delay
      *  since only the classic PIN path needs one (see resolveHomeScreenPin,
      *  which unlocks immediately with no animation at all). */
@@ -208,59 +246,95 @@ class LockFlowViewModel(
         val store = magicRepo.load()
         val fx = store.activeEffect
 
-        if (fx != null) {
-            val codeLen = when (fx.type) {
-                EffectType.LIST -> ForceListEngine.codeDigits(fx.items)
-                EffectType.WORD -> (fx.outs.maxOfOrNull { it.code.length } ?: 2).coerceAtLeast(2)
-            }
-            val lastDigits = if (pin.length >= codeLen) pin.takeLast(codeLen) else pin
+        // INJECT_SUM/INJECT_PEEK are the "send" half of the Inject feature
+        // — they're never triggered by PIN entry, only by opening a note
+        // and firing their proximity/volume trigger (see NoteEditScreen),
+        // so there's nothing for a PIN reveal to do here.
+        if (fx == null || fx.type == EffectType.INJECT_SUM || fx.type == EffectType.INJECT_PEEK) return
 
-            when (fx.type) {
-                EffectType.LIST -> {
-                    val relevant = ForceListEngine.relevantDigits(fx.items, lastDigits)
-                    val forced = ForceListEngine.buildForcedList(fx.items, fx.forceWord, relevant)
+        // Await whatever triggerInjectPrefetch() kicked off on the first
+        // PIN digit — giving it up to INJECT_FETCH_TIMEOUT_MS more here
+        // (on top of however long the rest of the PIN entry already took)
+        // before giving up. Off, no URL configured, or the fetch simply
+        // failed/timed out all collapse to the same "no value" outcome —
+        // injectValue() strips the token either way, per Inject Mode's
+        // documented off-behavior.
+        val injectedValue: String? = if (store.injectModeOn) {
+            withTimeoutOrNull(INJECT_FETCH_TIMEOUT_MS) { injectFetchDeferred?.await() }
+        } else null
+        fun injectValue(text: String): String =
+            if (injectedValue != null) text.replace(INJECT_VALUE_TOKEN, injectedValue)
+            else text.replace(INJECT_VALUE_TOKEN, "")
 
-                    val allNotes = notesRepo.loadAll()
-                    val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
+        val codeLen = when (fx.type) {
+            EffectType.LIST -> ForceListEngine.codeDigits(fx.items)
+            else -> (fx.outs.maxOfOrNull { it.code.length } ?: 2).coerceAtLeast(2)
+        }
+        val lastDigits = if (pin.length >= codeLen) pin.takeLast(codeLen) else pin
 
-                    // A numbered plain-text list ("1 - Item"), matching
-                    // the web app's <ol><li> rendering â€” not an actual
-                    // checkbox checklist, which reads as a to-do list
-                    // rather than a forced sequence of items.
-                    val numbered = forced.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
-                    val note = (existing ?: Note(magicEffectId = fx.id)).copy(
-                        title = fx.title,
-                        body = numbered,
-                        checklist = emptyList(),
-                        pinned = true,
-                        archived = false,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                    notesRepo.upsert(note)
-                    if (existing == null) {
-                        magicRepo.updateEffect(fx.copy(linkedNoteId = note.id))
-                    }
+        when (fx.type) {
+            EffectType.LIST -> {
+                val relevant = ForceListEngine.relevantDigits(fx.items, lastDigits)
+                // --value-- substitution happens BEFORE the force lookup —
+                // this is what lets "Force Item" literally just be
+                // "--value--" (see the screenshot in the feature request):
+                // whatever name/word the API returns is what gets searched
+                // for in the item list and forced into position, so the
+                // spectator can name anything and still land in the right
+                // spot. Only this local copy is substituted — the effect's
+                // own stored forceWord/items are never overwritten with a
+                // resolved value.
+                val forced = ForceListEngine.buildForcedList(
+                    fx.items.map(::injectValue),
+                    injectValue(fx.forceWord),
+                    relevant
+                )
+
+                val allNotes = notesRepo.loadAll()
+                val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
+
+                // A numbered plain-text list ("1 - Item"), matching
+                // the web app's <ol><li> rendering — not an actual
+                // checkbox checklist, which reads as a to-do list
+                // rather than a forced sequence of items.
+                val numbered = forced.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
+                val note = (existing ?: Note(magicEffectId = fx.id)).copy(
+                    title = injectValue(fx.title),
+                    body = numbered,
+                    checklist = emptyList(),
+                    pinned = true,
+                    archived = false,
+                    updatedAt = System.currentTimeMillis()
+                )
+                notesRepo.upsert(note)
+                if (existing == null) {
+                    magicRepo.updateEffect(fx.copy(linkedNoteId = note.id))
                 }
-                EffectType.WORD -> {
-                    val target = lastDigits.toIntOrNull()
-                    val match = fx.outs.firstOrNull { it.code.isNotEmpty() && it.code.toIntOrNull() == target }
-                    val word = if (match != null) match.word else "\uD83E\uDDD0" // ðŸ§ â€” matches the web app's fallback
-                    val note = Note(
-                        title = fx.title,
-                        body = fx.body.replace("$$$$", word),
-                        drawingPngBase64 = match?.drawingPngBase64,
-                        pinned = true,
-                        archived = false,
-                        magicEffectId = fx.id
-                    )
-                    notesRepo.upsert(note)
-                }
             }
+            EffectType.WORD -> {
+                val target = lastDigits.toIntOrNull()
+                val match = fx.outs.firstOrNull { it.code.isNotEmpty() && it.code.toIntOrNull() == target }
+                val word = if (match != null) match.word else "\uD83E\uDDD0" // 🧐 — matches the web app's fallback
+                val note = Note(
+                    title = injectValue(fx.title),
+                    body = injectValue(fx.body.replace("$$$$", word)),
+                    drawingPngBase64 = match?.drawingPngBase64,
+                    pinned = true,
+                    archived = false,
+                    magicEffectId = fx.id
+                )
+                notesRepo.upsert(note)
+            }
+            else -> Unit // INJECT_SUM/INJECT_PEEK already returned above
         }
     }
 
     companion object {
         const val UNLOCK_ANIM_MS = 480L
+        /** How much longer resolveEffectFor() will wait for the Inject API
+         *  fetch kicked off on the first PIN digit, on top of however long
+         *  the rest of PIN entry already took. */
+        const val INJECT_FETCH_TIMEOUT_MS = 4000L
     }
 }
 
