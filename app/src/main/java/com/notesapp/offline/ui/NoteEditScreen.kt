@@ -1,5 +1,10 @@
 package com.notesapp.offline.ui
 
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -31,9 +36,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -52,11 +62,16 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notesapp.offline.data.ChecklistItem
+import com.notesapp.offline.data.EffectType
+import com.notesapp.offline.data.InjectApiClient
+import com.notesapp.offline.data.MagicEffect
+import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NoteColor
 import com.notesapp.offline.ui.theme.RunsVisualTransformation
 import com.notesapp.offline.ui.theme.applyEditToRuns
 import com.notesapp.offline.ui.theme.toComposeColor
+import kotlinx.coroutines.launch
 
 /** Package-visible (not file-private) so other screens in this package —
  *  e.g. the effect editor's out-sketch thumbnails — can reuse it too. */
@@ -77,6 +92,7 @@ fun decodeBase64ToBitmap(base64: String) = runCatching {
 @Composable
 fun NoteEditScreen(
     viewModel: NotesViewModel,
+    magicRepo: MagicRepository,
     noteId: String?,
     isDarkTheme: Boolean,
     onBack: () -> Unit,
@@ -93,6 +109,93 @@ fun NoteEditScreen(
 
     val bgColor = if (isDarkTheme) Color.Black else Color.White
     val fgColor = if (isDarkTheme) Color.White else Color.Black
+
+    // ---- Inject "send" trigger arming (INJECT_SUM / INJECT_PEEK) ----
+    // Whichever effect is active gets checked once per note opened; if
+    // it's a Send-type effect, Inject Mode is on, and an API URL is set,
+    // this note's session arms that effect's own configured trigger(s)
+    // (per-effect: proximity, volume, or both — see MagicEffect's doc).
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val injectApiClient = remember { InjectApiClient() }
+    var sendEffect by remember(noteId) { mutableStateOf<MagicEffect?>(null) }
+    var apiUrl by remember(noteId) { mutableStateOf<String?>(null) }
+    var injectModeOn by remember(noteId) { mutableStateOf(false) }
+
+    LaunchedEffect(noteId) {
+        val store = magicRepo.load()
+        injectModeOn = store.injectModeOn
+        apiUrl = store.apiUrl
+        sendEffect = store.activeEffect?.takeIf {
+            it.type == EffectType.INJECT_SUM || it.type == EffectType.INJECT_PEEK
+        }
+    }
+
+    // rememberUpdatedState so the sensor/volume callbacks below (set up
+    // once by the DisposableEffect and not recreated on every keystroke)
+    // always read the LATEST note body when they actually fire, rather
+    // than whatever it was at the moment the listener was registered.
+    val latestBody by rememberUpdatedState(bodyField.text)
+
+    fun fireInjectSend() {
+        val fx = sendEffect ?: return
+        val url = apiUrl
+        if (!injectModeOn || url.isNullOrBlank()) return
+        val valueToSend = when (fx.type) {
+            // Sums every line that's purely a number — matches audience
+            // members calling out/writing a string of digits each, one
+            // per line, exactly as shown on screen.
+            EffectType.INJECT_SUM -> latestBody.lines()
+                .mapNotNull { it.trim().toLongOrNull() }
+                .sum()
+                .toString()
+            // Whatever's on screen, as-is — a freely-named celebrity (or
+            // anything else) the spectator wrote themselves.
+            EffectType.INJECT_PEEK -> latestBody.trim()
+            else -> return
+        }
+        if (valueToSend.isBlank()) return
+        scope.launch { injectApiClient.sendValue(url, valueToSend) }
+    }
+
+    DisposableEffect(sendEffect, injectModeOn, apiUrl) {
+        val fx = sendEffect
+        val eligible = injectModeOn && fx != null && !apiUrl.isNullOrBlank()
+
+        var sensorManager: SensorManager? = null
+        var proximityListener: SensorEventListener? = null
+
+        if (eligible && fx!!.sendUseProximity) {
+            sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            val proximitySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+            if (proximitySensor != null) {
+                var wasFar = true
+                proximityListener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent) {
+                        val near = event.values.isNotEmpty() && event.values[0] < proximitySensor.maximumRange
+                        // Only fire on the far->near transition (a wave, or
+                        // setting the phone face down/against a chest) —
+                        // not continuously while it stays covered.
+                        if (near && wasFar) fireInjectSend()
+                        wasFar = !near
+                    }
+                    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+                }
+                sensorManager.registerListener(proximityListener, proximitySensor, SensorManager.SENSOR_DELAY_NORMAL)
+            }
+        }
+
+        if (eligible && fx!!.sendUseVolumeButton) {
+            VolumeTriggerBus.arm { fireInjectSend() }
+        } else {
+            VolumeTriggerBus.disarm()
+        }
+
+        onDispose {
+            proximityListener?.let { sensorManager?.unregisterListener(it) }
+            VolumeTriggerBus.disarm()
+        }
+    }
 
     fun isEmpty(note: Note) =
         note.title.isBlank() && note.body.isBlank() && note.checklist.isEmpty() && note.drawingPngBase64 == null
