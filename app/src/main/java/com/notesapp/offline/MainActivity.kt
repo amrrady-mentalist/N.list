@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -53,6 +54,7 @@ import com.notesapp.offline.ui.NoteEditScreen
 import com.notesapp.offline.ui.NotesListScreen
 import com.notesapp.offline.ui.NotesViewModel
 import com.notesapp.offline.ui.NotesViewModelFactory
+import com.notesapp.offline.ui.VolumeTriggerBus
 import com.notesapp.offline.ui.theme.NotesNativeTheme
 import com.notesapp.offline.ui.theme.resolveDarkTheme
 import kotlinx.coroutines.launch
@@ -104,8 +106,19 @@ class MainActivity : ComponentActivity() {
         LockFlowViewModelFactory(notesRepo, magicRepo)
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        CrashLog.install(this)
+    /** Volume buttons only get intercepted here when a note-editing
+     *  session has actually armed VolumeTriggerBus (see its own doc) —
+     *  everywhere else, ACTION_DOWN falls through to super and the volume
+     *  keys behave completely normally. Only ACTION_DOWN is checked (not
+     *  onKeyUp too) so a press fires exactly once. */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (VolumeTriggerBus.fire()) return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {        CrashLog.install(this)
         installSplashScreen()
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -274,6 +287,7 @@ private fun NotesApp(
         is Screen.Edit -> key(s.noteId, editVersion) {
             NoteEditScreen(
                 viewModel = notesViewModel,
+                magicRepo = magicRepo,
                 noteId = s.noteId,
                 isDarkTheme = isDarkTheme,
                 onBack = { screen = Screen.List },
