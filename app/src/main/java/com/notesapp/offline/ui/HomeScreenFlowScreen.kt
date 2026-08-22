@@ -362,6 +362,9 @@ fun HomeScreenFlowScreen(viewModel: LockFlowViewModel) {
                                                 when {
                                                     totalDx < -40f && canForward -> {
                                                         pinDigits += touchZone.toString()
+                                                        // First swipe only — see triggerInjectPrefetch()'s
+                                                        // own doc for why it's the first digit specifically.
+                                                        if (pinDigits.length == 1) viewModel.triggerInjectPrefetch()
                                                         currentPage += 1
                                                     }
                                                     totalDx > 40f && currentPage > 0 -> {
