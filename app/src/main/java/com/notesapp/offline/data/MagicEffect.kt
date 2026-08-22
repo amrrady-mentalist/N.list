@@ -17,7 +17,7 @@ data class EffectOut(
 )
 
 @Serializable
-enum class EffectType { WORD, LIST }
+enum class EffectType { WORD, LIST, INJECT_SUM, INJECT_PEEK }
 
 /**
  * A single magic effect. Mirrors the web app's effect object exactly:
@@ -28,6 +28,23 @@ enum class EffectType { WORD, LIST }
  * - LIST effects reveal/refresh a checklist note built from [items], with
  *   [forceWord] silently reordered to the position the PIN digits encode
  *   (see ForceListEngine — that logic is unchanged from before).
+ * - INJECT_SUM / INJECT_PEEK don't touch the PIN/note-reveal flow at all —
+ *   they're the "send" half of the Inject API feature. While one of these
+ *   is the active effect (and Inject Mode is on in Magic Settings), opening
+ *   any note arms whichever of [sendUseProximity]/[sendUseVolumeButton]
+ *   this effect has enabled; firing that trigger reads whatever's
+ *   currently on that note's screen and POSTs it to the configured API —
+ *   the numeric total of the note's lines for INJECT_SUM, or the raw text
+ *   as-is for INJECT_PEEK.
+ *
+ * Any text field below — [title], [body], [forceWord], each line of
+ * [items] — can contain the literal token `--value--`. Whenever the PIN
+ * reveal for a WORD/LIST effect resolves, that token is swapped for
+ * whatever the Inject API most recently returned (fetched the instant the
+ * first PIN digit was entered/swiped, so the network round-trip has the
+ * whole rest of the PIN entry to finish) if Inject Mode is on, or removed
+ * entirely (never shown, never left as literal "--value--" text) if
+ * Inject Mode is off or nothing came back in time.
  *
  * [linkedNoteId] is only meaningful for LIST effects — the web app keeps
  * one persistent note per list effect and rewrites its content in place
@@ -46,7 +63,16 @@ data class MagicEffect(
     // List-type fields
     val forceWord: String = "",
     val items: List<String> = emptyList(),
-    val linkedNoteId: String? = null
+    val linkedNoteId: String? = null,
+    // Inject-reveal (send mode) fields — only meaningful for INJECT_SUM/INJECT_PEEK.
+    /** Waving a hand over / covering the proximity sensor fires the send —
+     *  matches "phone face down on the table or held to the spectator's
+     *  chest", where reaching a volume button isn't practical. */
+    val sendUseProximity: Boolean = true,
+    /** A volume button press fires the send instead of/in addition to
+     *  proximity — doesn't change the actual volume while armed. Useful as
+     *  a backup, or when proximity isn't practical for a given routine. */
+    val sendUseVolumeButton: Boolean = false
 )
 
 @Serializable
@@ -78,7 +104,16 @@ data class MagicStore(
      *  "com.google.android.googlequicksearchbox/.SearchWidgetProvider". */
     val homeWidgetProvider: String? = null,
     /** The AppWidgetHost-allocated id bound to [homeWidgetProvider]. -1 = none picked. */
-    val homeWidgetId: Int = -1
+    val homeWidgetId: Int = -1,
+    /** The Inject API endpoint — same URL used for both directions: GET to
+     *  receive the latest `--value--` (see MagicEffect's doc), POST to send
+     *  an INJECT_SUM/INJECT_PEEK effect's result. */
+    val apiUrl: String? = null,
+    /** Master switch for the whole Inject feature. Off means: never poll
+     *  the API for `--value--` (and strip that token from any effect text
+     *  that has it, rather than showing it literally), and never arm the
+     *  proximity/volume send triggers no matter what the active effect is. */
+    val injectModeOn: Boolean = false
 ) {
     val activeEffect: MagicEffect? get() = effects.firstOrNull { it.id == activeEffectId }
 }
