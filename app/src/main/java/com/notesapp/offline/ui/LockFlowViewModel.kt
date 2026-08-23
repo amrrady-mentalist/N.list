@@ -172,7 +172,7 @@ class LockFlowViewModel(
         _hsWidgetProvider.value = store.homeWidgetProvider
         _hsWidgetId.value = store.homeWidgetId
 
-        val fx = store.activeEffect
+        val fx = store.enabledPinEffect
         _hsRequiredDigits.value = when {
             fx == null -> 2
             fx.type == EffectType.LIST -> ForceListEngine.codeDigits(fx.items)
@@ -244,13 +244,13 @@ class LockFlowViewModel(
      *  which unlocks immediately with no animation at all). */
     private suspend fun resolveEffectFor(pin: String) {
         val store = magicRepo.load()
-        val fx = store.activeEffect
+        val fx = store.enabledPinEffect
 
         // INJECT_SUM/INJECT_PEEK are the "send" half of the Inject feature
         // — they're never triggered by PIN entry, only by opening a note
         // and firing their proximity/volume trigger (see NoteEditScreen),
         // so there's nothing for a PIN reveal to do here.
-        if (fx == null || fx.type == EffectType.INJECT_SUM || fx.type == EffectType.INJECT_PEEK) return
+        if (fx == null) return
 
         // Await whatever triggerInjectPrefetch() kicked off on the first
         // PIN digit — giving it up to INJECT_FETCH_TIMEOUT_MS more here
@@ -334,7 +334,7 @@ class LockFlowViewModel(
         /** How much longer resolveEffectFor() will wait for the Inject API
          *  fetch kicked off on the first PIN digit, on top of however long
          *  the rest of PIN entry already took. */
-        const val INJECT_FETCH_TIMEOUT_MS = 4000L
+        const val INJECT_FETCH_TIMEOUT_MS = 6000L
     }
 }
 
