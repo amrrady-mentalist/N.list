@@ -46,6 +46,7 @@ import com.notesapp.offline.data.ThemeMode
 import com.notesapp.offline.data.ThemeRepository
 import com.notesapp.offline.ui.DrawingScreen
 import com.notesapp.offline.ui.EffectEditorScreen
+import com.notesapp.offline.ui.InputMethodEditorScreen
 import com.notesapp.offline.ui.LockFlowHost
 import com.notesapp.offline.ui.LockFlowViewModel
 import com.notesapp.offline.ui.LockFlowViewModelFactory
