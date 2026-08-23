@@ -86,14 +86,12 @@ fun EffectEditorScreen(
     val fgColor = if (isDarkTheme) Color.White else Color.Black
 
     var effect by remember { mutableStateOf<MagicEffect?>(null) }
-    var isActive by remember { mutableStateOf(false) }
     var itemsText by remember { mutableStateOf("") }
     var loaded by remember { mutableStateOf(false) }
 
     LaunchedEffect(effectId) {
         val store = repo.load()
         effect = store.effects.firstOrNull { it.id == effectId }
-        isActive = store.activeEffectId == effectId
         itemsText = effect?.items?.joinToString("\n") ?: ""
         loaded = true
     }
@@ -105,6 +103,13 @@ fun EffectEditorScreen(
 
     val current = effect
     if (!loaded || current == null) return
+
+    val screenTitle = when (current.type) {
+        EffectType.LIST -> "Force List"
+        EffectType.WORD -> "Multiple Outs"
+        EffectType.INJECT_PEEK -> "Peek"
+        EffectType.INJECT_SUM -> "Math"
+    }
 
     Column(
         modifier = Modifier
@@ -130,139 +135,14 @@ fun EffectEditorScreen(
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = fgColor)
             }
-            IconButton(
-                onClick = {
-                    // deleteEffect() is a suspend IO write; calling onBack()
-                    // right after firing scope.launch (instead of from
-                    // inside it) let the navigation happen first, which
-                    // tore down this screen's rememberCoroutineScope and
-                    // CANCELLED the delete before its file write ever
-                    // completed — the effect would still be there when
-                    // Magic Settings reloaded. onBack() now only runs once
-                    // deleteEffect() has actually finished.
-                    scope.launch {
-                        repo.deleteEffect(current.id)
-                        onBack()
-                    }
-                },
-                modifier = Modifier.size(40.dp).glassPanel(radius = GlassRadius.lg, tint = fgColor)
-            ) {
-                Icon(Icons.Filled.Delete, contentDescription = "Delete effect", tint = fgColor)
-            }
+            Text(screenTitle, color = fgColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Box(modifier = Modifier.size(40.dp))
         }
 
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp)
         ) {
-            item {
-                BasicTextField(
-                    value = current.name,
-                    onValueChange = { persist(current.copy(name = it)) },
-                    textStyle = TextStyle(color = fgColor, fontSize = 22.sp, fontWeight = FontWeight.Bold),
-                    cursorBrush = SolidColor(fgColor),
-                    decorationBox = { inner ->
-                        if (current.name.isEmpty()) {
-                            Text("Effect name", color = fgColor.copy(alpha = 0.34f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        }
-                        inner()
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp)
-                )
-
-                Box(
-                    modifier = Modifier
-                        .then(
-                            if (isActive) Modifier.border(1.dp, AccentB, RoundedCornerShape(100))
-                            else Modifier.glassPanel(radius = 100.dp, tint = fgColor)
-                        )
-                        .clickable {
-                            scope.launch {
-                                val turningOn = !isActive
-                                repo.setActiveEffect(if (turningOn) current.id else null)
-                                isActive = turningOn
-
-                                // Let a List Force effect's plain item list
-                                // show up as a note the instant it's turned
-                                // on, so it can be shown to a spectator
-                                // before the PIN force ever happens. Reuses
-                                // the same linked note the PIN-resolve flow
-                                // later overwrites in place with the forced
-                                // order, so activating never creates a
-                                // duplicate — the same note just gets its
-                                // content replaced when the trick resolves.
-                                if (turningOn && current.type == EffectType.LIST) {
-                                    val plain = ForceListEngine.actualItems(current.items)
-                                    if (plain.isNotEmpty()) {
-                                        val numbered = plain.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
-                                        val existing = current.linkedNoteId?.let { notesViewModel.getNote(it) }
-                                        val note = (existing ?: Note(magicEffectId = current.id)).copy(
-                                            title = current.title,
-                                            body = numbered,
-                                            checklist = emptyList(),
-                                            pinned = true,
-                                            archived = false
-                                        )
-                                        notesViewModel.save(note)
-                                        if (existing == null) {
-                                            persist(current.copy(linkedNoteId = note.id))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .padding(horizontal = 16.dp, vertical = 9.dp)
-                ) {
-                    Text(
-                        if (isActive) "Active effect \u2713" else "Set as active",
-                        color = if (isActive) AccentB else fgColor,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TypePill(
-                        label = "Word",
-                        selected = current.type == EffectType.WORD,
-                        fgColor = fgColor,
-                        modifier = Modifier.weight(1f)
-                    ) { persist(current.copy(type = EffectType.WORD)) }
-                    TypePill(
-                        label = "List Force",
-                        selected = current.type == EffectType.LIST,
-                        fgColor = fgColor,
-                        modifier = Modifier.weight(1f)
-                    ) { persist(current.copy(type = EffectType.LIST)) }
-                }
-                // Inject Reveal (send mode) — a separate row rather than
-                // cramming 4 pills into one: these two don't share any
-                // fields with Word/List Force (no title/body/items at all,
-                // just the two trigger toggles below), so visually
-                // grouping them apart from the note-authoring types reads
-                // clearer than one uniform row of four.
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TypePill(
-                        label = "Inject: Sum",
-                        selected = current.type == EffectType.INJECT_SUM,
-                        fgColor = fgColor,
-                        modifier = Modifier.weight(1f)
-                    ) { persist(current.copy(type = EffectType.INJECT_SUM)) }
-                    TypePill(
-                        label = "Inject: Peek",
-                        selected = current.type == EffectType.INJECT_PEEK,
-                        fgColor = fgColor,
-                        modifier = Modifier.weight(1f)
-                    ) { persist(current.copy(type = EffectType.INJECT_PEEK)) }
-                }
-            }
-
             when (current.type) {
                 EffectType.WORD -> {
                 item {
@@ -312,10 +192,51 @@ fun EffectEditorScreen(
                     GlassTextPill("+ Add out", fgColor, modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)) {
                         persist(current.copy(outs = current.outs + EffectOut()))
                     }
+
+                    Text(
+                        "--value-- substitutes automatically whenever the PIN reveals this note \u2014 no toggle needed for that. \"Send to Inject\" below is separate: it sends whatever word $$$$ resolved to (or was hand-edited to) back out to your API.",
+                        color = fgColor.copy(alpha = 0.34f),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    FieldLabel("Inject", fgColor)
+                    DirectionToggleRow(
+                        label = "Send to Inject",
+                        sublabel = "Reads whatever's on screen and posts it to your Inject API when the trigger below fires.",
+                        checked = current.injectSendOn,
+                        fgColor = fgColor,
+                        onToggle = { persist(current.copy(injectSendOn = it)) }
+                    )
+                    if (current.injectSendOn) {
+                        FieldLabel("Trigger", fgColor, topPadding = 10.dp)
+                        TriggerToggleRow(
+                            label = "Proximity sensor",
+                            sublabel = "Wave a hand over it, or set the phone face down / against a chest",
+                            checked = current.sendUseProximity,
+                            fgColor = fgColor,
+                            onToggle = { persist(current.copy(sendUseProximity = it)) }
+                        )
+                        TriggerToggleRow(
+                            label = "Volume button",
+                            sublabel = "Press either volume button \u2014 it won't actually change the volume while armed",
+                            checked = current.sendUseVolumeButton,
+                            fgColor = fgColor,
+                            onToggle = { persist(current.copy(sendUseVolumeButton = it)) },
+                            modifier = Modifier.padding(bottom = 24.dp)
+                        )
+                    }
                 }
                 }
                 EffectType.LIST -> {
                 item {
+                    Text(
+                        "Force List only ever receives from Inject \u2014 whatever the API returns for \u2013\u2013value\u2013\u2013 is what gets searched for in the item list below and forced into position.",
+                        color = fgColor.copy(alpha = 0.6f),
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
                     FieldLabel("Note title", fgColor)
                     GlassInput(
                         value = current.title,
@@ -328,7 +249,7 @@ fun EffectEditorScreen(
                     GlassInput(
                         value = current.forceWord,
                         onValueChange = { persist(current.copy(forceWord = it)) },
-                        placeholder = "Paste one of the items below",
+                        placeholder = "Paste one of the items below, or \u2013\u2013value\u2013\u2013 to force whatever Inject returns",
                         fgColor = fgColor
                     )
 
@@ -348,7 +269,7 @@ fun EffectEditorScreen(
                             itemsText = text
                             persist(current.copy(items = text.split("\n")))
                         },
-                        placeholder = "Item 1\nItem 2\nItem 3\n...",
+                        placeholder = "Item 1\nItem 2\nItem 3\n...\n(add \u2013\u2013value\u2013\u2013 as one item if the Force item above is also \u2013\u2013value\u2013\u2013)",
                         fgColor = fgColor,
                         minHeight = 220.dp,
                         singleLine = false
@@ -363,28 +284,34 @@ fun EffectEditorScreen(
                     )
                 }
                 }
-                EffectType.INJECT_SUM, EffectType.INJECT_PEEK -> {
+                EffectType.INJECT_PEEK -> {
                 item {
                     Text(
-                        if (current.type == EffectType.INJECT_SUM) {
-                            "Reads whatever's on screen in the currently-open note, adds up every line that's purely a number, and sends the total to your Inject API — e.g. three lines of \"72882\", \"82829\", \"77773\" send \"233484\"."
-                        } else {
-                            "Reads whatever's on screen in the currently-open note, as-is, and sends it to your Inject API — e.g. a celebrity name your spectator wrote down."
-                        },
+                        "Peek can send to Inject, receive from it, or both \u2014 same trigger either way.",
                         color = fgColor.copy(alpha = 0.6f),
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    )
-                    Text(
-                        "Requires Inject Mode and an API URL set in Magic Settings. Set this active, then open any note — one or both triggers below arm for as long as that note stays open.",
-                        color = fgColor.copy(alpha = 0.34f),
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
                         modifier = Modifier.padding(bottom = 20.dp)
                     )
 
-                    FieldLabel("Trigger", fgColor)
+                    FieldLabel("Inject", fgColor)
+                    DirectionToggleRow(
+                        label = "Send to Inject",
+                        sublabel = "Reads whatever's on screen, as-is, and posts it \u2014 e.g. a name your spectator wrote down.",
+                        checked = current.injectSendOn,
+                        fgColor = fgColor,
+                        onToggle = { persist(current.copy(injectSendOn = it)) }
+                    )
+                    DirectionToggleRow(
+                        label = "Receive from Inject",
+                        sublabel = "Empty note \u2192 fills it with the latest value. Note with \u2013\u2013value\u2013\u2013 in it \u2192 replaces just that token.",
+                        checked = current.injectReceiveOn,
+                        fgColor = fgColor,
+                        onToggle = { persist(current.copy(injectReceiveOn = it)) },
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+
+                    FieldLabel("Trigger", fgColor, topPadding = 20.dp)
                     TriggerToggleRow(
                         label = "Proximity sensor",
                         sublabel = "Wave a hand over it, or set the phone face down / against a chest",
@@ -394,7 +321,76 @@ fun EffectEditorScreen(
                     )
                     TriggerToggleRow(
                         label = "Volume button",
-                        sublabel = "Press either volume button — it won't actually change the volume while armed",
+                        sublabel = "Press either volume button \u2014 it won't actually change the volume while armed",
+                        checked = current.sendUseVolumeButton,
+                        fgColor = fgColor,
+                        onToggle = { persist(current.copy(sendUseVolumeButton = it)) },
+                        modifier = Modifier.padding(bottom = 24.dp)
+                    )
+                }
+                }
+                EffectType.INJECT_SUM -> {
+                item {
+                    Text(
+                        "Math reads the numbers on screen (one per line), runs your equation, and can send the result to Inject, receive a value the same way Peek does, or both.",
+                        color = fgColor.copy(alpha = 0.6f),
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(bottom = 20.dp)
+                    )
+
+                    FieldLabel("Equation", fgColor)
+                    GlassInput(
+                        value = current.mathEquation,
+                        onValueChange = { persist(current.copy(mathEquation = it)) },
+                        placeholder = "Blank = sum every line. Or: (1st+2nd)-(3rd+4th)",
+                        fgColor = fgColor
+                    )
+                    Text(
+                        "Refer to each line by position \u2014 1st, 2nd, 3rd, 4th... \u2014 combined with + \u2212 \u00d7 \u00f7 and parentheses. Example: line 1 = 455, line 2 = 677, line 3 = 111, line 4 = 898 \u2014 \"(1st+2nd)-(3rd+4th)\" gives 123.",
+                        color = fgColor.copy(alpha = 0.34f),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 20.dp)
+                    )
+
+                    FieldLabel("Offline peek", fgColor)
+                    Text(
+                        "On a note created by Math, tap the Bold (B) button to show the equation's result in that note's title \u2014 no network, nothing sent. Tap it again to hide it. Works even with Inject Mode off.",
+                        color = fgColor.copy(alpha = 0.6f),
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(bottom = 20.dp)
+                    )
+
+                    FieldLabel("Inject", fgColor)
+                    DirectionToggleRow(
+                        label = "Send to Inject",
+                        sublabel = "Sends the equation's result to your Inject API when the trigger below fires.",
+                        checked = current.injectSendOn,
+                        fgColor = fgColor,
+                        onToggle = { persist(current.copy(injectSendOn = it)) }
+                    )
+                    DirectionToggleRow(
+                        label = "Receive from Inject",
+                        sublabel = "Empty note \u2192 fills it with the latest value. Note with \u2013\u2013value\u2013\u2013 in it \u2192 replaces just that token.",
+                        checked = current.injectReceiveOn,
+                        fgColor = fgColor,
+                        onToggle = { persist(current.copy(injectReceiveOn = it)) },
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+
+                    FieldLabel("Trigger", fgColor, topPadding = 20.dp)
+                    TriggerToggleRow(
+                        label = "Proximity sensor",
+                        sublabel = "Wave a hand over it, or set the phone face down / against a chest",
+                        checked = current.sendUseProximity,
+                        fgColor = fgColor,
+                        onToggle = { persist(current.copy(sendUseProximity = it)) }
+                    )
+                    TriggerToggleRow(
+                        label = "Volume button",
+                        sublabel = "Press either volume button \u2014 it won't actually change the volume while armed",
                         checked = current.sendUseVolumeButton,
                         fgColor = fgColor,
                         onToggle = { persist(current.copy(sendUseVolumeButton = it)) },
@@ -406,6 +402,16 @@ fun EffectEditorScreen(
         }
     }
 }
+
+@Composable
+private fun DirectionToggleRow(
+    label: String,
+    sublabel: String,
+    checked: Boolean,
+    fgColor: Color,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) = TriggerToggleRow(label, sublabel, checked, fgColor, onToggle, modifier)
 
 @Composable
 private fun TriggerToggleRow(
