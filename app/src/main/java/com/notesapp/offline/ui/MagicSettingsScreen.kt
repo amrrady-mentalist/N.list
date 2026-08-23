@@ -755,6 +755,7 @@ fun MagicSettingsScreen(
             item { Spacer(modifier = Modifier.height(100.dp)) }
         }
     }
+    }
 
     // Small "where from?" chooser shown before any icon change.
     iconSourceChooserTarget?.let { target ->
