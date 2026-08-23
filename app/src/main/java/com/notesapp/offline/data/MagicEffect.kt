@@ -56,6 +56,14 @@ data class MagicEffect(
     val id: String = UUID.randomUUID().toString(),
     val name: String = "",
     val type: EffectType = EffectType.WORD,
+    /** Whether this effect is switched on from the main Magic Settings
+     *  screen. For LIST (Force List) and WORD (Multiple Outs) — the two
+     *  PIN-reveal types — at most one of the two may be enabled at once
+     *  (enforced by MagicRepository.setEffectEnabled, same mutual-exclusion
+     *  rule as the Pin Code / Home Screen input-method toggle). PEEK and
+     *  SUM (Math) have no such restriction and can be enabled independently
+     *  of everything else. */
+    val enabled: Boolean = false,
     // Word-type fields
     val title: String = "",
     val body: String = "",
@@ -72,7 +80,23 @@ data class MagicEffect(
     /** A volume button press fires the send instead of/in addition to
      *  proximity — doesn't change the actual volume while armed. Useful as
      *  a backup, or when proximity isn't practical for a given routine. */
-    val sendUseVolumeButton: Boolean = false
+    val sendUseVolumeButton: Boolean = false,
+    /** Whether the send-to-API behavior is armed for this effect. Applies
+     *  to WORD (Multiple Outs — sends whatever word $$$$ resolved to),
+     *  INJECT_PEEK, and INJECT_SUM (Math). Ignored for LIST, which is
+     *  receive-only. */
+    val injectSendOn: Boolean = true,
+    /** Whether the receive-from-API behavior is armed for this effect.
+     *  Applies to INJECT_PEEK and INJECT_SUM (Math): firing the trigger on
+     *  an empty note fills it with the latest API value; firing it on a
+     *  note that contains the literal --value-- token replaces that token
+     *  with the latest API value instead. */
+    val injectReceiveOn: Boolean = false,
+    /** Math (INJECT_SUM) only. An equation referencing each line of the
+     *  note by position — "1st", "2nd", "3rd", "4th", "5th", ... "10th",
+     *  combined with +, -, *, /, and parentheses, e.g. "(1st+2nd)-(3rd+4th)".
+     *  Blank means "sum every line", matching the original behavior. */
+    val mathEquation: String = ""
 )
 
 @Serializable
@@ -116,4 +140,22 @@ data class MagicStore(
     val injectModeOn: Boolean = false
 ) {
     val activeEffect: MagicEffect? get() = effects.firstOrNull { it.id == activeEffectId }
+
+    /** The one PIN-reveal effect currently in play — Force List (LIST) or
+     *  Multiple Outs (WORD), whichever is enabled. Mutually exclusive by
+     *  construction (MagicRepository.setEffectEnabled enforces it), so at
+     *  most one of these ever comes back non-null. */
+    val enabledPinEffect: MagicEffect?
+        get() = effects.firstOrNull { it.enabled && (it.type == EffectType.LIST || it.type == EffectType.WORD) }
+
+    fun effectOfType(type: EffectType): MagicEffect? = effects.firstOrNull { it.type == type }
+}
+
+/** Fixed slugs for the 4 fixed effect slots — used to look effects up by
+ *  role rather than by a user-editable name. */
+object EffectNames {
+    const val FORCE_LIST = "Force List"
+    const val MULTIPLE_OUTS = "Multiple Outs"
+    const val PEEK = "Peek"
+    const val MATH = "Math"
 }
