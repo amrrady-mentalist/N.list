@@ -119,6 +119,52 @@ fun NoteEditScreen(
     // once, the note's own magicEffectId link wins; otherwise Peek takes
     // priority over Math over Multiple Outs, since only one physical
     // trigger (proximity/volume) fires per note session.
+
+    fun isEmpty(note: Note) =
+        note.title.isBlank() && note.body.isBlank() && note.checklist.isEmpty() && note.drawingPngBase64 == null
+
+    fun persist(note: Note) {
+        current = note
+        if (isEmpty(note)) return // don't write a completely empty note to disk
+        everPersisted = true
+        viewModel.save(note)
+    }
+
+    /** If this note ended up empty — either it never had content, or had
+     *  content that got fully deleted — remove it instead of leaving a
+     *  blank entry behind. Covers both a fresh note that's still blank
+     *  (never persisted, nothing to delete) and one that was typed into
+     *  and then fully cleared (was persisted, needs an actual delete). */
+    fun handleBack() {
+        if (isEmpty(current) && everPersisted) {
+            viewModel.delete(current.id)
+        }
+        onBack()
+    }
+
+    /** Routes every body-text mutation (typing or toolbar-triggered) through the same
+     *  diff engine so styleRuns always stay correctly shifted, regardless of source. */
+    fun updateBody(newValue: TextFieldValue, applyActiveStyle: Boolean = true) {
+        val newRuns = applyEditToRuns(
+            current.styleRuns,
+            bodyField.text,
+            newValue.text,
+            activeBold = applyActiveStyle && activeBold,
+            activeItalic = applyActiveStyle && activeItalic,
+            activeUnderline = applyActiveStyle && activeUnderline
+        )
+        bodyField = newValue
+        persist(current.copy(body = newValue.text, styleRuns = newRuns))
+    }
+
+    // ---- Inject send/receive trigger arming ----
+    // Whichever Inject-capable effect governs THIS note gets checked once
+    // per note opened — Peek and Math (Sum) can each independently arm
+    // their own send and/or receive behavior; Multiple Outs (WORD) can
+    // additionally arm a send-only trigger. If more than one is enabled at
+    // once, the note's own magicEffectId link wins; otherwise Peek takes
+    // priority over Math over Multiple Outs, since only one physical
+    // trigger (proximity/volume) fires per note session.
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val injectApiClient = remember { InjectApiClient() }
@@ -240,43 +286,6 @@ fun NoteEditScreen(
             proximityListener?.let { sensorManager?.unregisterListener(it) }
             VolumeTriggerBus.disarm()
         }
-    }
-
-    fun isEmpty(note: Note) =
-        note.title.isBlank() && note.body.isBlank() && note.checklist.isEmpty() && note.drawingPngBase64 == null
-
-    fun persist(note: Note) {
-        current = note
-        if (isEmpty(note)) return // don't write a completely empty note to disk
-        everPersisted = true
-        viewModel.save(note)
-    }
-
-    /** If this note ended up empty — either it never had content, or had
-     *  content that got fully deleted — remove it instead of leaving a
-     *  blank entry behind. Covers both a fresh note that's still blank
-     *  (never persisted, nothing to delete) and one that was typed into
-     *  and then fully cleared (was persisted, needs an actual delete). */
-    fun handleBack() {
-        if (isEmpty(current) && everPersisted) {
-            viewModel.delete(current.id)
-        }
-        onBack()
-    }
-
-    /** Routes every body-text mutation (typing or toolbar-triggered) through the same
-     *  diff engine so styleRuns always stay correctly shifted, regardless of source. */
-    fun updateBody(newValue: TextFieldValue, applyActiveStyle: Boolean = true) {
-        val newRuns = applyEditToRuns(
-            current.styleRuns,
-            bodyField.text,
-            newValue.text,
-            activeBold = applyActiveStyle && activeBold,
-            activeItalic = applyActiveStyle && activeItalic,
-            activeUnderline = applyActiveStyle && activeUnderline
-        )
-        bodyField = newValue
-        persist(current.copy(body = newValue.text, styleRuns = newRuns))
     }
 
     Column(
