@@ -39,6 +39,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.notesapp.offline.data.LockMode
 import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.NotesRepository
 import com.notesapp.offline.data.ThemeMode
@@ -75,6 +76,7 @@ sealed class Screen {
     data class Edit(val noteId: String?) : Screen()
     data class Drawing(val noteId: String) : Screen()
     data object MagicSettings : Screen()
+    data class InputMethodEditor(val mode: LockMode) : Screen()
     data class EffectEditor(val effectId: String) : Screen()
     data class OutSketch(val effectId: String, val outId: String) : Screen()
 }
@@ -84,7 +86,8 @@ sealed class Screen {
  *  whether its status bar shows depends on which state the lock flow is in. */
 private fun Screen.showsSystemBars(): Boolean =
     this is Screen.List || this is Screen.Edit || this is Screen.MagicSettings ||
-        this is Screen.Drawing || this is Screen.EffectEditor || this is Screen.OutSketch
+        this is Screen.Drawing || this is Screen.EffectEditor || this is Screen.OutSketch ||
+        this is Screen.InputMethodEditor
 
 /** Within the lock flow, only the Ambient (AOD-style) clock screen shows the
  *  status bar — matches a real always-on-display, which still shows signal/
@@ -316,7 +319,14 @@ private fun NotesApp(
             themeRepo = themeRepo,
             isDarkTheme = isDarkTheme,
             onBack = { screen = Screen.List },
-            onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId) }
+            onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId) },
+            onOpenInputMethod = { mode -> screen = Screen.InputMethodEditor(mode) }
+        )
+        is Screen.InputMethodEditor -> InputMethodEditorScreen(
+            repo = magicRepo,
+            mode = s.mode,
+            isDarkTheme = isDarkTheme,
+            onBack = { screen = Screen.MagicSettings }
         )
         is Screen.EffectEditor -> key(s.effectId, effectVersion) {
             EffectEditorScreen(
