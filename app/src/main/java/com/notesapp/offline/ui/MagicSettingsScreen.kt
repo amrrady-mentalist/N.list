@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,12 +61,17 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.graphics.drawable.toBitmap
 import com.notesapp.offline.data.BackupRepository
 import com.notesapp.offline.data.EffectType
+import com.notesapp.offline.data.EffectNames
+import com.notesapp.offline.data.ForceListEngine
 import com.notesapp.offline.data.HsWidgetHost
+import com.notesapp.offline.data.InjectApiClient
+import com.notesapp.offline.data.InjectFetchDebugResult
 import com.notesapp.offline.data.InvalidBackupException
 import com.notesapp.offline.data.LockMode
 import com.notesapp.offline.data.MagicEffect
 import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.MagicStore
+import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NotesRepository
 import com.notesapp.offline.data.ThemeRepository
 import com.notesapp.offline.ui.theme.AccentA
@@ -103,6 +109,9 @@ fun MagicSettingsScreen(
     var store by remember { mutableStateOf(MagicStore()) }
     var loaded by remember { mutableStateOf(false) }
     var decoyAppsExpanded by remember { mutableStateOf(false) }
+    val injectApiClient = remember { InjectApiClient() }
+    var injectTestResult by remember { mutableStateOf<InjectFetchDebugResult?>(null) }
+    var injectTesting by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         store = repo.load()
@@ -365,21 +374,27 @@ fun MagicSettingsScreen(
         ) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    SectionLabel("Lock Method", fgColor)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LockModePill(
-                            label = "Classic Lock",
-                            selected = store.lockMode == LockMode.CLASSIC,
-                            fgColor = fgColor,
-                            onClick = { persist(store.copy(lockMode = LockMode.CLASSIC)) }
-                        )
-                        LockModePill(
-                            label = "Home Screen",
-                            selected = store.lockMode == LockMode.HOME_SCREEN,
-                            fgColor = fgColor,
-                            onClick = { persist(store.copy(lockMode = LockMode.HOME_SCREEN)) }
-                        )
-                    }
+                    SectionLabel("Input Method", fgColor)
+                    Text(
+                        "Only one can be active at a time \u2014 turning one on switches the other off. Tap a row to customize it.",
+                        color = fgColor.copy(alpha = 0.34f),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                    InputMethodRow(
+                        label = "Pin Code",
+                        checked = store.lockMode == LockMode.CLASSIC,
+                        fgColor = fgColor,
+                        onClick = { persist(store.copy(lockMode = LockMode.CLASSIC)) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    InputMethodRow(
+                        label = "Home Screen",
+                        checked = store.lockMode == LockMode.HOME_SCREEN,
+                        fgColor = fgColor,
+                        onClick = { persist(store.copy(lockMode = LockMode.HOME_SCREEN)) }
+                    )
 
                     if (store.lockMode == LockMode.HOME_SCREEN) {
                         SectionLabel("Home screen wallpaper", fgColor, topPadding = 20.dp)
@@ -485,23 +500,25 @@ fun MagicSettingsScreen(
                 }
             }
 
-            item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    SectionLabel("Lock screen background", fgColor, topPadding = 20.dp)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        PhotoThumb(path = store.lockBackgroundPath, fgColor = fgColor)
-                        Column {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                GlassPill("Change photo", fgColor) {
-                                    lockBgPicker.launch(
-                                        androidx.activity.result.PickVisualMediaRequest(
-                                            ActivityResultContracts.PickVisualMedia.ImageOnly
+            if (store.lockMode == LockMode.CLASSIC) {
+                item {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        SectionLabel("Lock screen background", fgColor, topPadding = 20.dp)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            PhotoThumb(path = store.lockBackgroundPath, fgColor = fgColor)
+                            Column {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    GlassPill("Change photo", fgColor) {
+                                        lockBgPicker.launch(
+                                            androidx.activity.result.PickVisualMediaRequest(
+                                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                                            )
                                         )
-                                    )
-                                }
-                                if (store.lockBackgroundPath != null) {
-                                    GlassPill("Remove", Danger) {
-                                        persist(store.copy(lockBackgroundPath = null))
+                                    }
+                                    if (store.lockBackgroundPath != null) {
+                                        GlassPill("Remove", Danger) {
+                                            persist(store.copy(lockBackgroundPath = null))
+                                        }
                                     }
                                 }
                             }
@@ -591,54 +608,151 @@ fun MagicSettingsScreen(
                         }
                     }
 
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                            .glassPanel(radius = GlassRadius.sm, tint = fgColor)
+                            .clickable(enabled = !injectTesting) {
+                                injectTesting = true
+                                injectTestResult = null
+                                val url = store.apiUrl.orEmpty()
+                                scope.launch {
+                                    injectTestResult = injectApiClient.fetchDebug(url)
+                                    injectTesting = false
+                                }
+                            }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            if (injectTesting) "Testing\u2026" else "Test Connection",
+                            color = fgColor,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "GET now",
+                            color = fgColor.copy(alpha = 0.4f),
+                            fontSize = 12.sp
+                        )
+                    }
+                    injectTestResult?.let { result ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                                .glassPanel(radius = GlassRadius.sm, tint = fgColor)
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            if (result.error != null) {
+                                Text(
+                                    "Failed: ${result.error}",
+                                    color = Danger,
+                                    fontSize = 12.5.sp,
+                                    lineHeight = 17.sp
+                                )
+                            } else {
+                                Text(
+                                    "Got value: \"${result.parsedValue}\"",
+                                    color = fgColor,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    lineHeight = 17.sp
+                                )
+                            }
+                            result.httpCode?.let {
+                                Text(
+                                    "HTTP $it",
+                                    color = fgColor.copy(alpha = 0.4f),
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                            result.rawBody?.let {
+                                Text(
+                                    it.take(400),
+                                    color = fgColor.copy(alpha = 0.34f),
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
                     SectionLabel("Effects", fgColor, topPadding = 24.dp)
+                    Text(
+                        "Force List and Multiple Outs share the PIN, so turning one on switches the other off. Peek and Math are independent. Tap a row to customize it.",
+                        color = fgColor.copy(alpha = 0.34f),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
                 }
             }
 
-            if (store.effects.isEmpty()) {
-                item {
-                    Text(
-                        "No effects yet. Tap + to create one.",
-                        color = fgColor.copy(alpha = 0.34f),
-                        fontSize = 14.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 60.dp, horizontal = 20.dp)
-                    )
-                }
-            } else {
-                items(store.effects, key = { it.id }) { fx ->
-                    EffectCard(
-                        effect = fx,
-                        isActive = store.activeEffectId == fx.id,
+            items(
+                listOf(
+                    EffectType.LIST to "Reads the position a PIN encodes and forces an item into it",
+                    EffectType.WORD to "Multiple code \u2192 word outs, revealed by the PIN's last digits",
+                    EffectType.INJECT_PEEK to "Send/receive whatever's on a note's screen via Inject",
+                    EffectType.INJECT_SUM to "Runs an equation over a note's numbers via Inject"
+                ),
+                key = { it.first }
+            ) { (type, subtitle) ->
+                val fx = store.effects.firstOrNull { it.type == type }
+                if (fx != null) {
+                    EffectToggleRow(
+                        label = when (type) {
+                            EffectType.LIST -> EffectNames.FORCE_LIST
+                            EffectType.WORD -> EffectNames.MULTIPLE_OUTS
+                            EffectType.INJECT_PEEK -> EffectNames.PEEK
+                            EffectType.INJECT_SUM -> EffectNames.MATH
+                        },
+                        subtitle = subtitle,
+                        checked = fx.enabled,
                         fgColor = fgColor,
+                        onToggle = { enabled ->
+                            scope.launch {
+                                repo.setEffectEnabled(fx.id, enabled)
+                                store = repo.load()
+                                // Let a Force List's plain item list show up
+                                // as a note the instant it's turned on, so
+                                // it can be shown to a spectator before the
+                                // PIN force ever happens — reuses the same
+                                // linked note the PIN-resolve flow later
+                                // overwrites in place, so this never
+                                // creates a duplicate.
+                                if (enabled && type == EffectType.LIST) {
+                                    val plain = ForceListEngine.actualItems(fx.items)
+                                    if (plain.isNotEmpty()) {
+                                        val numbered = plain.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
+                                        val existingNote = fx.linkedNoteId?.let { id -> notesRepo.loadAll().firstOrNull { it.id == id } }
+                                        val note = (existingNote ?: Note(magicEffectId = fx.id)).copy(
+                                            title = fx.title,
+                                            body = numbered,
+                                            checklist = emptyList(),
+                                            pinned = true,
+                                            archived = false
+                                        )
+                                        notesRepo.upsert(note)
+                                        if (existingNote == null) {
+                                            repo.updateEffect(fx.copy(linkedNoteId = note.id))
+                                            store = repo.load()
+                                        }
+                                    }
+                                }
+                            }
+                        },
                         onClick = { onOpenEffect(fx.id) },
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                     )
                 }
             }
-        }
-    }
 
-        // FAB — creates a blank effect and jumps straight into its editor,
-        // matching the web app's newEffectBtn behavior.
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(20.dp)
-                .size(60.dp)
-                .clip(CircleShape)
-                .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(AccentA, AccentB)))
-                .clickable {
-                    scope.launch {
-                        val created = repo.createEffect()
-                        onOpenEffect(created.id)
-                    }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Filled.Add, contentDescription = "New effect", tint = Color(0xFF0A0A12))
+            item { Spacer(modifier = Modifier.height(100.dp)) }
         }
     }
 
@@ -767,6 +881,102 @@ private fun LockModePill(label: String, selected: Boolean, fgColor: Color, onCli
             color = if (selected) Color(0xFF0A0A12) else fgColor,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+/** A row in the "Input Method" section — tapping the label/subtitle area
+ *  navigates into that input method (selecting it along the way, since
+ *  there's nothing to customize for a method that isn't selected); the
+ *  switch on the right toggles it on/off directly, same gesture as an
+ *  effect's toggle below. Turning one input method on is what turns the
+ *  other off — LockMode is a single field, so selecting one IS
+ *  deselecting the other. */
+@Composable
+private fun InputMethodRow(
+    label: String,
+    checked: Boolean,
+    fgColor: Color,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassPanel(radius = GlassRadius.sm, tint = fgColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            color = fgColor,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f)
+        )
+        ToggleSwitch(checked = checked, fgColor = fgColor, onToggle = { onClick() })
+    }
+}
+
+/** A row in the "Effects" section — tapping the label/subtitle area opens
+ *  that effect's own customization page; the switch on the right enables
+ *  or disables it from here directly, without opening that page. */
+@Composable
+private fun EffectToggleRow(
+    label: String,
+    subtitle: String,
+    checked: Boolean,
+    fgColor: Color,
+    onToggle: (Boolean) -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .glassPanel(radius = GlassRadius.md, tint = fgColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = fgColor, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(
+                subtitle,
+                color = fgColor.copy(alpha = 0.4f),
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 3.dp)
+            )
+        }
+        ToggleSwitch(checked = checked, fgColor = fgColor, onToggle = onToggle, modifier = Modifier.padding(start = 12.dp))
+    }
+}
+
+@Composable
+private fun ToggleSwitch(checked: Boolean, fgColor: Color, onToggle: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(width = 44.dp, height = 26.dp)
+            .clip(RoundedCornerShape(100))
+            .background(
+                if (checked) androidx.compose.ui.graphics.Brush.linearGradient(listOf(AccentA, AccentB))
+                else androidx.compose.ui.graphics.Brush.linearGradient(
+                    listOf(fgColor.copy(alpha = 0.16f), fgColor.copy(alpha = 0.16f))
+                )
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onToggle(!checked) }
+            .padding(3.dp),
+        contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(if (checked) Color(0xFF0A0A12) else fgColor.copy(alpha = 0.7f))
         )
     }
 }
