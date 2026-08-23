@@ -66,6 +66,7 @@ import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.InjectApiClient
 import com.notesapp.offline.data.MagicEffect
 import com.notesapp.offline.data.MagicRepository
+import com.notesapp.offline.data.MathEquationEngine
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NoteColor
 import com.notesapp.offline.ui.theme.RunsVisualTransformation
@@ -110,25 +111,36 @@ fun NoteEditScreen(
     val bgColor = if (isDarkTheme) Color.Black else Color.White
     val fgColor = if (isDarkTheme) Color.White else Color.Black
 
-    // ---- Inject "send" trigger arming (INJECT_SUM / INJECT_PEEK) ----
-    // Whichever effect is active gets checked once per note opened; if
-    // it's a Send-type effect, Inject Mode is on, and an API URL is set,
-    // this note's session arms that effect's own configured trigger(s)
-    // (per-effect: proximity, volume, or both — see MagicEffect's doc).
+    // ---- Inject send/receive trigger arming ----
+    // Whichever Inject-capable effect governs THIS note gets checked once
+    // per note opened — Peek and Math (Sum) can each independently arm
+    // their own send and/or receive behavior; Multiple Outs (WORD) can
+    // additionally arm a send-only trigger. If more than one is enabled at
+    // once, the note's own magicEffectId link wins; otherwise Peek takes
+    // priority over Math over Multiple Outs, since only one physical
+    // trigger (proximity/volume) fires per note session.
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val injectApiClient = remember { InjectApiClient() }
-    var sendEffect by remember(noteId) { mutableStateOf<MagicEffect?>(null) }
+    var triggerEffect by remember(noteId) { mutableStateOf<MagicEffect?>(null) }
+    var mathEffect by remember(noteId) { mutableStateOf<MagicEffect?>(null) }
     var apiUrl by remember(noteId) { mutableStateOf<String?>(null) }
     var injectModeOn by remember(noteId) { mutableStateOf(false) }
+    var mathPeekOn by remember(noteId) { mutableStateOf(false) }
+    var titleBeforeMathPeek by remember(noteId) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(noteId) {
         val store = magicRepo.load()
         injectModeOn = store.injectModeOn
         apiUrl = store.apiUrl
-        sendEffect = store.activeEffect?.takeIf {
-            it.type == EffectType.INJECT_SUM || it.type == EffectType.INJECT_PEEK
-        }
+        mathEffect = store.effectOfType(EffectType.INJECT_SUM)?.takeIf { it.enabled }
+        val candidates = listOfNotNull(
+            store.effectOfType(EffectType.INJECT_PEEK)?.takeIf { it.enabled },
+            store.effectOfType(EffectType.INJECT_SUM)?.takeIf { it.enabled },
+            store.effectOfType(EffectType.WORD)?.takeIf { it.enabled && it.injectSendOn }
+        )
+        val linkedId = existing?.magicEffectId
+        triggerEffect = candidates.firstOrNull { it.id == linkedId } ?: candidates.firstOrNull()
     }
 
     // rememberUpdatedState so the sensor/volume callbacks below (set up
@@ -138,29 +150,62 @@ fun NoteEditScreen(
     val latestBody by rememberUpdatedState(bodyField.text)
 
     fun fireInjectSend() {
-        val fx = sendEffect ?: return
+        val fx = triggerEffect ?: return
         val url = apiUrl
-        if (!injectModeOn || url.isNullOrBlank()) return
+        if (!injectModeOn || url.isNullOrBlank() || !fx.injectSendOn) return
         val valueToSend = when (fx.type) {
-            // Sums every line that's purely a number — matches audience
-            // members calling out/writing a string of digits each, one
-            // per line, exactly as shown on screen.
-            EffectType.INJECT_SUM -> latestBody.lines()
-                .mapNotNull { it.trim().toLongOrNull() }
-                .sum()
-                .toString()
+            // Runs the effect's configured equation (default: sum every
+            // numeric line) against whatever numbers are on screen —
+            // matches audience members calling out/writing a string of
+            // digits each, one per line, exactly as shown on screen.
+            EffectType.INJECT_SUM -> {
+                val values = MathEquationEngine.lineValues(latestBody)
+                MathEquationEngine.evaluate(fx.mathEquation, values)?.toString() ?: return
+            }
             // Whatever's on screen, as-is — a freely-named celebrity (or
             // anything else) the spectator wrote themselves.
             EffectType.INJECT_PEEK -> latestBody.trim()
+            // Multiple Outs "send" — whatever word $$$$ ended up resolving
+            // to (or was hand-edited to afterward) on this note's screen.
+            EffectType.WORD -> latestBody.trim()
             else -> return
         }
         if (valueToSend.isBlank()) return
         scope.launch { injectApiClient.sendValue(url, valueToSend) }
     }
 
-    DisposableEffect(sendEffect, injectModeOn, apiUrl) {
-        val fx = sendEffect
-        val eligible = injectModeOn && fx != null && !apiUrl.isNullOrBlank()
+    fun fireInjectReceive() {
+        val fx = triggerEffect ?: return
+        val url = apiUrl
+        if (!injectModeOn || url.isNullOrBlank() || !fx.injectReceiveOn) return
+        if (fx.type != EffectType.INJECT_PEEK && fx.type != EffectType.INJECT_SUM) return
+        scope.launch {
+            val value = injectApiClient.fetchValue(url) ?: return@launch
+            val bodyText = bodyField.text
+            val newText = when {
+                // Totally empty note — just drop the latest API value
+                // straight onto the screen.
+                bodyText.isBlank() -> value
+                // Note has writing on it AND contains the --value-- token
+                // — swap just that token for the latest API value.
+                bodyText.contains(INJECT_VALUE_TOKEN) -> bodyText.replace(INJECT_VALUE_TOKEN, value)
+                // Has other writing with no token to replace — leave it
+                // alone rather than clobbering something the performer
+                // (or spectator) actually wrote.
+                else -> return@launch
+            }
+            updateBody(TextFieldValue(newText, selection = androidx.compose.ui.text.TextRange(newText.length)), applyActiveStyle = false)
+        }
+    }
+
+    fun fireInjectTrigger() {
+        fireInjectSend()
+        fireInjectReceive()
+    }
+
+    DisposableEffect(triggerEffect, injectModeOn, apiUrl) {
+        val fx = triggerEffect
+        val eligible = injectModeOn && fx != null && !apiUrl.isNullOrBlank() && (fx.injectSendOn || fx.injectReceiveOn)
 
         var sensorManager: SensorManager? = null
         var proximityListener: SensorEventListener? = null
@@ -176,7 +221,7 @@ fun NoteEditScreen(
                         // Only fire on the far->near transition (a wave, or
                         // setting the phone face down/against a chest) —
                         // not continuously while it stays covered.
-                        if (near && wasFar) fireInjectSend()
+                        if (near && wasFar) fireInjectTrigger()
                         wasFar = !near
                     }
                     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
@@ -186,7 +231,7 @@ fun NoteEditScreen(
         }
 
         if (eligible && fx!!.sendUseVolumeButton) {
-            VolumeTriggerBus.arm { fireInjectSend() }
+            VolumeTriggerBus.arm { fireInjectTrigger() }
         } else {
             VolumeTriggerBus.disarm()
         }
@@ -410,7 +455,30 @@ fun NoteEditScreen(
             isBoldActive = activeBold,
             isItalicActive = activeItalic,
             isUnderlineActive = activeUnderline,
-            onToggleBold = { activeBold = !activeBold },
+            onToggleBold = {
+                activeBold = !activeBold
+                // Math's offline peek: on a note linked to the (enabled)
+                // Math effect, the Bold button doubles as a total-reveal
+                // toggle — shows the equation's result in the title, no
+                // network involved, and puts the original title back when
+                // tapped again.
+                val mfx = mathEffect
+                if (mfx != null && current.magicEffectId == mfx.id) {
+                    if (!mathPeekOn) {
+                        val values = MathEquationEngine.lineValues(bodyField.text)
+                        val total = MathEquationEngine.evaluate(mfx.mathEquation, values)
+                        if (total != null) {
+                            titleBeforeMathPeek = current.title
+                            mathPeekOn = true
+                            persist(current.copy(title = total.toString()))
+                        }
+                    } else {
+                        mathPeekOn = false
+                        persist(current.copy(title = titleBeforeMathPeek ?: ""))
+                        titleBeforeMathPeek = null
+                    }
+                }
+            },
             onToggleItalic = { activeItalic = !activeItalic },
             onToggleUnderline = { activeUnderline = !activeUnderline },
             onBulletLine = { updateBody(applyBulletLine(bodyField), applyActiveStyle = false) },
