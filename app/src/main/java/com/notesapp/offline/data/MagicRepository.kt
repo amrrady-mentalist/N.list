@@ -46,8 +46,39 @@ class MagicRepository(context: Context) {
      */
     private val mutex = Mutex()
 
+    // ---- Effect CRUD -------------------------------------------------
+    // Each of these composes loadLocked()/saveLocked() under a single lock
+    // acquisition — matching the web app's pattern of always operating on
+    // the single in-memory `magic` object and calling saveMagic() after
+    // every change, but now as one atomic unit so no other caller's
+    // load/save can land in the middle of it.
+
+    /** Guarantees exactly one effect exists per fixed slot (Force List,
+     *  Multiple Outs, Peek, Math), creating any missing ones — called on
+     *  every load() so callers never have to special-case "not created
+     *  yet". Effects are looked up by [EffectType] rather than by name,
+     *  since the 4 slots are fixed and no longer freely created/deleted
+     *  by the user. Safe to call repeatedly: a no-op once all 4 exist. */
+    private fun MagicStore.withFixedEffects(): MagicStore {
+        val required = listOf(
+            EffectType.LIST to EffectNames.FORCE_LIST,
+            EffectType.WORD to EffectNames.MULTIPLE_OUTS,
+            EffectType.INJECT_PEEK to EffectNames.PEEK,
+            EffectType.INJECT_SUM to EffectNames.MATH
+        )
+        val missing = required.filter { (type, _) -> effects.none { it.type == type } }
+        if (missing.isEmpty()) return this
+        val created = missing.map { (type, name) -> MagicEffect(name = name, type = type) }
+        return copy(effects = effects + created)
+    }
+
     suspend fun load(): MagicStore = withContext(Dispatchers.IO) {
-        mutex.withLock { loadLocked() }
+        mutex.withLock {
+            val store = loadLocked()
+            val withFixed = store.withFixedEffects()
+            if (withFixed !== store) saveLocked(withFixed)
+            withFixed
+        }
     }
 
     suspend fun save(store: MagicStore) = withContext(Dispatchers.IO) {
@@ -93,46 +124,35 @@ class MagicRepository(context: Context) {
         tempFile.renameTo(file)
     }
 
-    // ---- Effect CRUD -------------------------------------------------
-    // Each of these composes loadLocked()/saveLocked() under a single lock
-    // acquisition — matching the web app's pattern of always operating on
-    // the single in-memory `magic` object and calling saveMagic() after
-    // every change, but now as one atomic unit so no other caller's
-    // load/save can land in the middle of it.
-
-    suspend fun createEffect(): MagicEffect = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            val store = loadLocked()
-            val effect = MagicEffect()
-            saveLocked(store.copy(effects = listOf(effect) + store.effects))
-            effect
-        }
-    }
-
     suspend fun updateEffect(effect: MagicEffect) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val store = loadLocked()
+            val store = loadLocked().withFixedEffects()
             val updated = store.effects.map { if (it.id == effect.id) effect else it }
             saveLocked(store.copy(effects = updated))
         }
     }
 
-    suspend fun deleteEffect(effectId: String) = withContext(Dispatchers.IO) {
+    /** Turns [effectId] on/off from the main Magic Settings screen. Force
+     *  List (LIST) and Multiple Outs (WORD) are mutually exclusive — since
+     *  only one PIN entry happens per unlock, turning one on here
+     *  automatically turns the other off, the same rule the Pin Code /
+     *  Home Screen input-method toggle already follows. Peek and Math have
+     *  no such restriction. */
+    suspend fun setEffectEnabled(effectId: String, enabled: Boolean) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val store = loadLocked()
-            saveLocked(
-                store.copy(
-                    effects = store.effects.filterNot { it.id == effectId },
-                    activeEffectId = if (store.activeEffectId == effectId) null else store.activeEffectId
-                )
-            )
-        }
-    }
-
-    suspend fun setActiveEffect(effectId: String?) = withContext(Dispatchers.IO) {
-        mutex.withLock {
-            val store = loadLocked()
-            saveLocked(store.copy(activeEffectId = effectId))
+            val store = loadLocked().withFixedEffects()
+            val target = store.effects.firstOrNull { it.id == effectId } ?: return@withLock
+            val isPinType = target.type == EffectType.LIST || target.type == EffectType.WORD
+            val updated = store.effects.map { fx ->
+                when {
+                    fx.id == effectId -> fx.copy(enabled = enabled)
+                    // Turning a PIN-reveal effect ON switches the other
+                    // PIN-reveal effect OFF, if it was on.
+                    isPinType && enabled && (fx.type == EffectType.LIST || fx.type == EffectType.WORD) -> fx.copy(enabled = false)
+                    else -> fx
+                }
+            }
+            saveLocked(store.copy(effects = updated))
         }
     }
 
