@@ -96,7 +96,8 @@ fun MagicSettingsScreen(
     themeRepo: ThemeRepository,
     isDarkTheme: Boolean,
     onBack: () -> Unit,
-    onOpenEffect: (String) -> Unit
+    onOpenEffect: (String) -> Unit,
+    onOpenInputMethod: (LockMode) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -108,7 +109,6 @@ fun MagicSettingsScreen(
 
     var store by remember { mutableStateOf(MagicStore()) }
     var loaded by remember { mutableStateOf(false) }
-    var decoyAppsExpanded by remember { mutableStateOf(false) }
     val injectApiClient = remember { InjectApiClient() }
     var injectTestResult by remember { mutableStateOf<InjectFetchDebugResult?>(null) }
     var injectTesting by remember { mutableStateOf(false) }
@@ -168,160 +168,6 @@ fun MagicSettingsScreen(
                     backupMessage = e.message ?: "Couldn't restore that backup."
                 }
             )
-        }
-    }
-
-    val lockBgPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
-            scope.launch {
-                val path = copyImageToInternal(context, uri, repo.mediaDir, "lock_bg")
-                // Only overwrite the saved setting on an actual successful
-                // copy — if it silently failed, leave whatever background
-                // was already set (if any) alone rather than blanking it.
-                if (path != null) {
-                    persist(store.copy(lockBackgroundPath = path))
-                }
-            }
-        }
-    }
-
-    // Single shared picker for every Home Screen-mode image slot (the
-    // wallpaper, the disguised Notes icon, and each decoy app's icon) —
-    // `pendingIconTarget` says which one the next result should apply to.
-    // "wallpaper" and "notes" are the two fixed slots; anything else is
-    // taken as the decoy app name being re-skinned.
-    var pendingIconTarget by remember { mutableStateOf<String?>(null) }
-    // When set, shows the small "Photos / An installed app" chooser for
-    // that target instead of jumping straight to the gallery.
-    var iconSourceChooserTarget by remember { mutableStateOf<String?>(null) }
-    // When set, shows the installed-apps list for that target.
-    var appPickerTarget by remember { mutableStateOf<String?>(null) }
-
-    fun applyIconPath(target: String, path: String) {
-        when (target) {
-            "wallpaper" -> persist(store.copy(homeWallpaperPath = path))
-            "notes" -> persist(store.copy(notesIconPath = path))
-            else -> persist(store.copy(appIconOverrides = store.appIconOverrides + (target to path)))
-        }
-    }
-
-    val hsIconPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        val target = pendingIconTarget
-        pendingIconTarget = null
-        if (uri != null && target != null) {
-            scope.launch {
-                val path = copyImageToInternal(context, uri, repo.mediaDir, "hs_${target}")
-                if (path != null) applyIconPath(target, path)
-            }
-        }
-    }
-    fun launchPhotosPicker(target: String) {
-        pendingIconTarget = target
-        hsIconPicker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-    }
-
-    /** Entry point every "Change icon"/"Icon" button calls — the wallpaper
-     *  slot has no meaningful "app icon" equivalent, so it skips the
-     *  chooser and goes straight to Photos. */
-    fun pickHsIcon(target: String) {
-        if (target == "wallpaper") launchPhotosPicker(target) else iconSourceChooserTarget = target
-    }
-
-    // ---- Real Android widget picking (replaces the old hand-drawn
-    // "Google search bar" widget slot) ----
-    var widgetPickerOpen by remember { mutableStateOf(false) }
-    // Tracks an allocated-but-not-yet-bound widget id across the two-step
-    // bind → (optional) configure flow, so the activity-result callbacks
-    // below know what they're finishing.
-    var pendingBindInfo by remember { mutableStateOf<android.appwidget.AppWidgetProviderInfo?>(null) }
-    var pendingBindId by remember { mutableStateOf(-1) }
-    var pendingConfigureProvider by remember { mutableStateOf<String?>(null) }
-    var pendingConfigureId by remember { mutableStateOf(-1) }
-    // Some widgets' configure/customize screens are marked non-exported —
-    // only the system launcher (with special OS privileges) is allowed to
-    // launch them; a normal app gets a SecurityException. Shown to the
-    // user instead of letting the crash happen.
-    var widgetErrorMessage by remember { mutableStateOf<String?>(null) }
-
-    val widgetConfigureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val id = pendingConfigureId
-        val provider = pendingConfigureProvider
-        pendingConfigureId = -1
-        pendingConfigureProvider = null
-        if (result.resultCode == android.app.Activity.RESULT_OK && id >= 0 && provider != null) {
-            persist(store.copy(homeWidgetProvider = provider, homeWidgetId = id))
-        } else if (id >= 0) {
-            // User backed out of the widget's own configure screen —
-            // release the id rather than leaving an orphaned half-bound
-            // widget hanging around.
-            HsWidgetHost.get(context).deleteAppWidgetId(id)
-        }
-    }
-
-    fun finishWidgetBind(info: android.appwidget.AppWidgetProviderInfo, id: Int) {
-        val configure = info.configure
-        if (configure != null) {
-            val intent = Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
-                component = configure
-                putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-            }
-            try {
-                pendingConfigureId = id
-                pendingConfigureProvider = info.provider.flattenToString()
-                widgetConfigureLauncher.launch(intent)
-            } catch (e: SecurityException) {
-                pendingConfigureId = -1
-                pendingConfigureProvider = null
-                HsWidgetHost.get(context).deleteAppWidgetId(id)
-                widgetErrorMessage = "\"${runCatching { info.loadLabel(context.packageManager) }.getOrDefault("This widget")}\" can't be added — its setup screen is restricted to system launchers only, not regular apps. Try a different widget."
-            }
-        } else {
-            persist(store.copy(homeWidgetProvider = info.provider.flattenToString(), homeWidgetId = id))
-        }
-    }
-
-    val widgetBindLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val info = pendingBindInfo
-        val id = pendingBindId
-        pendingBindInfo = null
-        pendingBindId = -1
-        if (result.resultCode == android.app.Activity.RESULT_OK && info != null && id >= 0) {
-            finishWidgetBind(info, id)
-        } else if (id >= 0) {
-            HsWidgetHost.get(context).deleteAppWidgetId(id)
-        }
-    }
-
-    fun pickWidget(info: android.appwidget.AppWidgetProviderInfo) {
-        widgetPickerOpen = false
-        val host = HsWidgetHost.get(context)
-        val id = host.allocateAppWidgetId()
-        val mgr = android.appwidget.AppWidgetManager.getInstance(context)
-        // Most widgets from the same app you've already granted, or ones
-        // that don't need special permission, bind immediately; anything
-        // else needs one-time system consent via the intent below.
-        val boundImmediately = try {
-            mgr.bindAppWidgetIdIfAllowed(id, info.provider)
-        } catch (e: SecurityException) {
-            false
-        }
-        if (boundImmediately) {
-            finishWidgetBind(info, id)
-        } else {
-            try {
-                pendingBindInfo = info
-                pendingBindId = id
-                val intent = Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
-                    putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-                    putExtra(android.appwidget.AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
-                }
-                widgetBindLauncher.launch(intent)
-            } catch (e: Exception) {
-                pendingBindInfo = null
-                pendingBindId = -1
-                host.deleteAppWidgetId(id)
-                widgetErrorMessage = "\"${runCatching { info.loadLabel(context.packageManager) }.getOrDefault("This widget")}\" couldn't be added. Try a different widget."
-            }
         }
     }
 
@@ -386,144 +232,17 @@ fun MagicSettingsScreen(
                         label = "Pin Code",
                         checked = store.lockMode == LockMode.CLASSIC,
                         fgColor = fgColor,
-                        onClick = { persist(store.copy(lockMode = LockMode.CLASSIC)) }
+                        onToggle = { persist(store.copy(lockMode = LockMode.CLASSIC)) },
+                        onClick = { onOpenInputMethod(LockMode.CLASSIC) }
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     InputMethodRow(
                         label = "Home Screen",
                         checked = store.lockMode == LockMode.HOME_SCREEN,
                         fgColor = fgColor,
-                        onClick = { persist(store.copy(lockMode = LockMode.HOME_SCREEN)) }
+                        onToggle = { persist(store.copy(lockMode = LockMode.HOME_SCREEN)) },
+                        onClick = { onOpenInputMethod(LockMode.HOME_SCREEN) }
                     )
-
-                    if (store.lockMode == LockMode.HOME_SCREEN) {
-                        SectionLabel("Home screen wallpaper", fgColor, topPadding = 20.dp)
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            PhotoThumb(path = store.homeWallpaperPath, fgColor = fgColor)
-                            GlassPill("Change photo", fgColor) { pickHsIcon("wallpaper") }
-                        }
-
-                        SectionLabel("Home screen widget", fgColor, topPadding = 20.dp)
-                        Text(
-                            "Any real widget from your phone — sits at the top of the first page, in place of the old built-in search bar.",
-                            color = fgColor.copy(alpha = 0.34f),
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            GlassPill(
-                                if (store.homeWidgetProvider != null) "Change widget" else "Choose widget",
-                                fgColor
-                            ) { widgetPickerOpen = true }
-                            if (store.homeWidgetProvider != null) {
-                                GlassPill("Remove", fgColor) {
-                                    if (store.homeWidgetId >= 0) {
-                                        HsWidgetHost.get(context).deleteAppWidgetId(store.homeWidgetId)
-                                    }
-                                    persist(store.copy(homeWidgetProvider = null, homeWidgetId = -1))
-                                }
-                            }
-                        }
-
-                        SectionLabel("Disguised Notes icon", fgColor, topPadding = 20.dp)
-                        Text(
-                            "This is the icon on the fake home screen's last page that actually opens your real notes.",
-                            color = fgColor.copy(alpha = 0.34f),
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            PhotoThumb(path = store.notesIconPath, fgColor = fgColor)
-                            GlassPill("Change icon", fgColor) { pickHsIcon("notes") }
-                        }
-
-                        SectionLabel("Dock apps", fgColor, topPadding = 20.dp)
-                        Text(
-                            "The 3 fake apps shown either side of the lock button at the bottom of every page.",
-                            color = fgColor.copy(alpha = 0.34f),
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            homeScreenDockApps.forEach { app ->
-                                DecoyAppRow(
-                                    app = app,
-                                    iconPath = store.appIconOverrides[app.name],
-                                    displayName = store.appNameOverrides[app.name] ?: app.name,
-                                    fgColor = fgColor,
-                                    onPickIcon = { pickHsIcon(app.name) },
-                                    onNameChange = { newName ->
-                                        persist(store.copy(appNameOverrides = store.appNameOverrides + (app.name to newName)))
-                                    }
-                                )
-                            }
-                        }
-
-                        SectionLabel("Decoy apps", fgColor, topPadding = 20.dp)
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { decoyAppsExpanded = !decoyAppsExpanded },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "Rename or re-skin any of the ${homeScreenDecoyApps.size} filler apps shown around the disguised Notes icon.",
-                                color = fgColor.copy(alpha = 0.34f),
-                                fontSize = 12.sp,
-                                lineHeight = 17.sp,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Icon(
-                                if (decoyAppsExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                contentDescription = if (decoyAppsExpanded) "Collapse" else "Expand",
-                                tint = fgColor.copy(alpha = 0.56f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (store.lockMode == LockMode.HOME_SCREEN && decoyAppsExpanded) {
-                items(homeScreenDecoyApps, key = { it.name }) { app ->
-                    DecoyAppRow(
-                        app = app,
-                        iconPath = store.appIconOverrides[app.name],
-                        displayName = store.appNameOverrides[app.name] ?: app.name,
-                        fgColor = fgColor,
-                        onPickIcon = { pickHsIcon(app.name) },
-                        onNameChange = { newName ->
-                            persist(store.copy(appNameOverrides = store.appNameOverrides + (app.name to newName)))
-                        },
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
-                    )
-                }
-            }
-
-            if (store.lockMode == LockMode.CLASSIC) {
-                item {
-                    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                        SectionLabel("Lock screen background", fgColor, topPadding = 20.dp)
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            PhotoThumb(path = store.lockBackgroundPath, fgColor = fgColor)
-                            Column {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    GlassPill("Change photo", fgColor) {
-                                        lockBgPicker.launch(
-                                            androidx.activity.result.PickVisualMediaRequest(
-                                                ActivityResultContracts.PickVisualMedia.ImageOnly
-                                            )
-                                        )
-                                    }
-                                    if (store.lockBackgroundPath != null) {
-                                        GlassPill("Remove", Danger) {
-                                            persist(store.copy(lockBackgroundPath = null))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
@@ -757,69 +476,6 @@ fun MagicSettingsScreen(
     }
     }
 
-    // Small "where from?" chooser shown before any icon change.
-    iconSourceChooserTarget?.let { target ->
-        IconSourceChooserDialog(
-            fgColor = fgColor,
-            onPickPhotos = {
-                iconSourceChooserTarget = null
-                launchPhotosPicker(target)
-            },
-            onPickApp = {
-                iconSourceChooserTarget = null
-                appPickerTarget = target
-            },
-            onDismiss = { iconSourceChooserTarget = null }
-        )
-    }
-
-    // Full installed-apps list, shown after "An installed app" is chosen.
-    appPickerTarget?.let { target ->
-        InstalledAppPickerDialog(
-            fgColor = fgColor,
-            bgColor = bgColor,
-            onPicked = { packageName ->
-                appPickerTarget = null
-                scope.launch {
-                    val path = savePackageIconToInternal(context, packageName, repo.mediaDir, "hs_${target}")
-                    if (path != null) applyIconPath(target, path)
-                }
-            },
-            onDismiss = { appPickerTarget = null }
-        )
-    }
-
-    if (widgetPickerOpen) {
-        WidgetPickerDialog(
-            fgColor = fgColor,
-            bgColor = bgColor,
-            onPicked = { info -> pickWidget(info) },
-            onDismiss = { widgetPickerOpen = false }
-        )
-    }
-
-    widgetErrorMessage?.let { message ->
-        Dialog(onDismissRequest = { widgetErrorMessage = null }) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(bgColor)
-                    .padding(20.dp)
-            ) {
-                Text("Can't add this widget", color = fgColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    message,
-                    color = fgColor.copy(alpha = 0.6f),
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
-                )
-                GlassPill("OK", fgColor) { widgetErrorMessage = null }
-            }
-        }
-    }
-
     pendingRestoreUri?.let { uri ->
         Dialog(onDismissRequest = { pendingRestoreUri = null }) {
             Column(
@@ -850,7 +506,7 @@ fun MagicSettingsScreen(
 }
 
 @Composable
-private fun SectionLabel(text: String, fgColor: Color, topPadding: androidx.compose.ui.unit.Dp = 0.dp) {
+fun SectionLabel(text: String, fgColor: Color, topPadding: androidx.compose.ui.unit.Dp = 0.dp) {
     Text(
         text.uppercase(),
         color = fgColor.copy(alpha = 0.56f),
@@ -898,6 +554,7 @@ private fun InputMethodRow(
     label: String,
     checked: Boolean,
     fgColor: Color,
+    onToggle: () -> Unit,
     onClick: () -> Unit
 ) {
     Row(
@@ -915,7 +572,7 @@ private fun InputMethodRow(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f)
         )
-        ToggleSwitch(checked = checked, fgColor = fgColor, onToggle = { onClick() })
+        ToggleSwitch(checked = checked, fgColor = fgColor, onToggle = { onToggle() })
     }
 }
 
@@ -1005,7 +662,7 @@ private fun ApiUrlField(value: String, onValueChange: (String) -> Unit, fgColor:
 }
 
 @Composable
-private fun GlassPill(label: String, textColor: Color, onClick: () -> Unit) {
+fun GlassPill(label: String, textColor: Color, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .glassPanel(radius = 100.dp, tint = textColor)
@@ -1017,7 +674,7 @@ private fun GlassPill(label: String, textColor: Color, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PhotoThumb(path: String?, fgColor: Color) {
+fun PhotoThumb(path: String?, fgColor: Color) {
     val bmp = remember(path) {
         path?.let { p -> runCatching { android.graphics.BitmapFactory.decodeFile(p) }.getOrNull() }
     }
@@ -1044,7 +701,7 @@ private fun PhotoThumb(path: String?, fgColor: Color) {
  *  the user can tap to re-skin, plus an editable name field, mirroring
  *  the same icon/rename controls the Notes-icon and wallpaper slots use. */
 @Composable
-private fun DecoyAppRow(
+fun DecoyAppRow(
     app: HsDecoyApp,
     iconPath: String?,
     displayName: String,
@@ -1173,7 +830,7 @@ private fun defaultBackupFileName(): String {
     return "n-list-backup-$date.zip"
 }
 
-private suspend fun copyImageToInternal(context: Context, uri: Uri, dir: File, prefix: String): String? =
+suspend fun copyImageToInternal(context: Context, uri: Uri, dir: File, prefix: String): String? =
     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         runCatching {
             val dest = File(dir, "${prefix}_${System.currentTimeMillis()}.jpg")
@@ -1194,7 +851,7 @@ private suspend fun copyImageToInternal(context: Context, uri: Uri, dir: File, p
  *  PNG under the app's own storage, same durability reasoning as
  *  [copyImageToInternal] — the icon needs to survive independent of
  *  whether the source app stays installed. */
-private suspend fun savePackageIconToInternal(context: Context, packageName: String, dir: File, prefix: String): String? =
+suspend fun savePackageIconToInternal(context: Context, packageName: String, dir: File, prefix: String): String? =
     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         runCatching {
             val bmp = context.packageManager.getApplicationIcon(packageName).toBitmap()
@@ -1233,7 +890,7 @@ private fun queryLaunchableApps(context: Context): List<InstalledAppEntry> {
  *  launcher's appfilter.xml) isn't implemented — these two cover the
  *  common cases without that extra integration. */
 @Composable
-private fun IconSourceChooserDialog(
+fun IconSourceChooserDialog(
     fgColor: Color,
     onPickPhotos: () -> Unit,
     onPickApp: () -> Unit,
@@ -1279,7 +936,7 @@ private fun ChooserRow(title: String, subtitle: String, fgColor: Color, onClick:
  *  with its real icon — tapping one uses that icon for whichever slot
  *  (wallpaper/notes/decoy app) triggered the picker. */
 @Composable
-private fun InstalledAppPickerDialog(
+fun InstalledAppPickerDialog(
     fgColor: Color,
     bgColor: Color,
     onPicked: (String) -> Unit,
@@ -1372,14 +1029,14 @@ private fun InstalledAppPickerDialog(
 
 
 /** One installed widget provider — enough to list and preview it. */
-private data class InstalledWidgetEntry(
+data class InstalledWidgetEntry(
     val info: android.appwidget.AppWidgetProviderInfo,
     val label: String,
     val icon: android.graphics.drawable.Drawable?,
     val hostAppLabel: String
 )
 
-private fun queryInstalledWidgets(context: Context): List<InstalledWidgetEntry> {
+fun queryInstalledWidgets(context: Context): List<InstalledWidgetEntry> {
     val mgr = android.appwidget.AppWidgetManager.getInstance(context)
     val pm = context.packageManager
     return mgr.installedProviders.mapNotNull { info ->
@@ -1399,7 +1056,7 @@ private fun queryInstalledWidgets(context: Context): List<InstalledWidgetEntry> 
  *  app that publishes one), each with its actual icon — replaces the old
  *  hand-drawn "Google search bar" with an actual widget the user embeds. */
 @Composable
-private fun WidgetPickerDialog(
+fun WidgetPickerDialog(
     fgColor: Color,
     bgColor: Color,
     onPicked: (android.appwidget.AppWidgetProviderInfo) -> Unit,
