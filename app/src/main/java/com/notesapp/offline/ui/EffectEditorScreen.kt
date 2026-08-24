@@ -104,11 +104,16 @@ fun EffectEditorScreen(
     val current = effect
     if (!loaded || current == null) return
 
+    // Peek and Math stay fixed singletons with fixed labels; Force List and
+    // Multiple Outs are unlimited, user-created instances, so those get an
+    // editable name (shown in the top bar) and a delete button instead.
+    val isFixedSingleton = current.type == EffectType.INJECT_PEEK || current.type == EffectType.INJECT_SUM
     val screenTitle = when (current.type) {
-        EffectType.LIST -> "Force List"
-        EffectType.WORD -> "Multiple Outs"
         EffectType.INJECT_PEEK -> "Peek"
         EffectType.INJECT_SUM -> "Math"
+        else -> if (current.name.isBlank()) {
+            if (current.type == EffectType.LIST) "Force List" else "Multiple Outs"
+        } else current.name
     }
 
     Column(
@@ -136,7 +141,49 @@ fun EffectEditorScreen(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = fgColor)
             }
             Text(screenTitle, color = fgColor, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Box(modifier = Modifier.size(40.dp))
+            if (isFixedSingleton) {
+                Box(modifier = Modifier.size(40.dp))
+            } else {
+                IconButton(
+                    onClick = {
+                        // deleteEffect() is a suspend IO write; wait for it
+                        // to finish before navigating back — firing
+                        // onBack() right alongside scope.launch (instead of
+                        // inside it) tore down this screen's
+                        // rememberCoroutineScope and cancelled the delete
+                        // before its file write completed, so the effect
+                        // was still there when Magic Settings reloaded.
+                        scope.launch {
+                            repo.deleteEffect(current.id)
+                            onBack()
+                        }
+                    },
+                    modifier = Modifier.size(40.dp).glassPanel(radius = GlassRadius.lg, tint = fgColor)
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = fgColor)
+                }
+            }
+        }
+
+        if (!isFixedSingleton) {
+            BasicTextField(
+                value = current.name,
+                onValueChange = { persist(current.copy(name = it)) },
+                textStyle = TextStyle(color = fgColor, fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+                cursorBrush = SolidColor(fgColor),
+                decorationBox = { inner ->
+                    if (current.name.isEmpty()) {
+                        Text(
+                            if (current.type == EffectType.LIST) "Name this list \u2014 e.g. \"Card trick\"" else "Name this effect",
+                            color = fgColor.copy(alpha = 0.34f),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    inner()
+                },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)
+            )
         }
 
         LazyColumn(
@@ -231,7 +278,7 @@ fun EffectEditorScreen(
                 EffectType.LIST -> {
                 item {
                     Text(
-                        "Force List only ever receives from Inject \u2014 whatever the API returns for \u2013\u2013value\u2013\u2013 is what gets searched for in the item list below and forced into position.",
+                        "Force List only ever receives from Inject. Set the Force item to \u2013\u2013value\u2013\u2013 and whatever Inject returns is placed straight into the encoded position \u2014 it doesn't need to already be one of the items below. Otherwise, the Force item must match one of the items below exactly, and that item gets moved into position.",
                         color = fgColor.copy(alpha = 0.6f),
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
@@ -269,7 +316,7 @@ fun EffectEditorScreen(
                             itemsText = text
                             persist(current.copy(items = text.split("\n")))
                         },
-                        placeholder = "Item 1\nItem 2\nItem 3\n...\n(add \u2013\u2013value\u2013\u2013 as one item if the Force item above is also \u2013\u2013value\u2013\u2013)",
+                        placeholder = "Item 1\nItem 2\nItem 3\n...",
                         fgColor = fgColor,
                         minHeight = 220.dp,
                         singleLine = false
@@ -546,7 +593,7 @@ private fun GlassInput(
 }
 
 @Composable
-private fun GlassTextPill(label: String, fgColor: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun GlassTextPill(label: String, fgColor: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier = modifier
             .glassPanel(radius = 100.dp, tint = fgColor)
