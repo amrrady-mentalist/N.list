@@ -274,21 +274,32 @@ class LockFlowViewModel(
 
         when (fx.type) {
             EffectType.LIST -> {
-                val relevant = ForceListEngine.relevantDigits(fx.items, lastDigits)
-                // --value-- substitution happens BEFORE the force lookup —
-                // this is what lets "Force Item" literally just be
-                // "--value--" (see the screenshot in the feature request):
-                // whatever name/word the API returns is what gets searched
-                // for in the item list and forced into position, so the
-                // spectator can name anything and still land in the right
-                // spot. Only this local copy is substituted — the effect's
-                // own stored forceWord/items are never overwritten with a
-                // resolved value.
-                val forced = ForceListEngine.buildForcedList(
-                    fx.items.map(::injectValue),
-                    injectValue(fx.forceWord),
-                    relevant
-                )
+                val rawForceWord = fx.forceWord.trim()
+                val forced = if (rawForceWord == INJECT_VALUE_TOKEN) {
+                    // Force Item is literally --value-- — the spectator's
+                    // word comes back from Inject and isn't necessarily one
+                    // of the predefined items, so it can't be found by
+                    // buildForcedList()'s exact-match search (that was the
+                    // bug: nothing matched, so the list came back
+                    // unforced). Insert it directly at the PIN-encoded
+                    // position instead. Any literal "--value--" line left
+                    // in the item list from the old placeholder-item
+                    // workaround is dropped first so it doesn't linger
+                    // alongside the real result.
+                    val plain = fx.items.filterNot { it.trim() == INJECT_VALUE_TOKEN }
+                    val relevant = ForceListEngine.relevantDigits(plain, lastDigits)
+                    ForceListEngine.insertForcedValue(plain, injectValue(rawForceWord), relevant)
+                } else {
+                    val relevant = ForceListEngine.relevantDigits(fx.items, lastDigits)
+                    // --value-- substitution happens BEFORE the force lookup —
+                    // this lets a Force Item that merely CONTAINS --value--
+                    // (e.g. as part of a longer string) still resolve, as long
+                    // as the resulting text matches one of the items above.
+                    // Only this local copy is substituted — the effect's own
+                    // stored forceWord/items are never overwritten with a
+                    // resolved value.
+                    ForceListEngine.buildForcedList(fx.items.map(::injectValue), injectValue(rawForceWord), relevant)
+                }
 
                 val allNotes = notesRepo.loadAll()
                 val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
