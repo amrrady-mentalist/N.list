@@ -53,12 +53,15 @@ class MagicRepository(context: Context) {
     // every change, but now as one atomic unit so no other caller's
     // load/save can land in the middle of it.
 
-    /** Guarantees exactly one effect exists per fixed slot (Force List,
-     *  Multiple Outs, Peek, Math), creating any missing ones — called on
-     *  every load() so callers never have to special-case "not created
-     *  yet". Effects are looked up by [EffectType] rather than by name,
-     *  since the 4 slots are fixed and no longer freely created/deleted
-     *  by the user. Safe to call repeatedly: a no-op once all 4 exist. */
+    /** Guarantees at least one effect exists per type — Peek and Math stay
+     *  fixed singletons (never created/deleted by the user), while Force
+     *  List (LIST) and Multiple Outs (WORD) are unlimited: the user can add
+     *  and delete as many of each as they want via [createEffect] /
+     *  [deleteEffect], so this only ever fills in a default the first time
+     *  a type has none — it never enforces "exactly one" for those two.
+     *  Called on every load() so callers never have to special-case "not
+     *  created yet". Safe to call repeatedly: a no-op once all 4 types
+     *  have at least one. */
     private fun MagicStore.withFixedEffects(): MagicStore {
         val required = listOf(
             EffectType.LIST to EffectNames.FORCE_LIST,
@@ -132,12 +135,38 @@ class MagicRepository(context: Context) {
         }
     }
 
-    /** Turns [effectId] on/off from the main Magic Settings screen. Force
-     *  List (LIST) and Multiple Outs (WORD) are mutually exclusive — since
-     *  only one PIN entry happens per unlock, turning one on here
-     *  automatically turns the other off, the same rule the Pin Code /
-     *  Home Screen input-method toggle already follows. Peek and Math have
-     *  no such restriction. */
+    /** Adds a new Force List (LIST) or Multiple Outs (WORD) instance — the
+     *  user can create as many of either as they want. Starts disabled;
+     *  the performer picks which one is actually in play from the Magic
+     *  Settings screen afterward. Not used for Peek/Math, which stay fixed
+     *  singletons. */
+    suspend fun createEffect(type: EffectType, name: String): MagicEffect = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val store = loadLocked().withFixedEffects()
+            val effect = MagicEffect(name = name, type = type)
+            saveLocked(store.copy(effects = store.effects + effect))
+            effect
+        }
+    }
+
+    /** Removes one Force List / Multiple Outs instance. If it was the last
+     *  of its type, the next load() transparently refills a blank default
+     *  via [withFixedEffects] rather than leaving that type with zero
+     *  entries. */
+    suspend fun deleteEffect(effectId: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val store = loadLocked()
+            saveLocked(store.copy(effects = store.effects.filterNot { it.id == effectId }))
+        }
+    }
+
+    /** Turns [effectId] on/off from the main Magic Settings screen. At most
+     *  one PIN-reveal effect — any single Force List (LIST) instance, or
+     *  any single Multiple Outs (WORD) instance — can be enabled at once,
+     *  since only one PIN entry happens per unlock: turning one on here
+     *  automatically turns off whichever other LIST/WORD instance was on,
+     *  the same rule the Pin Code / Home Screen input-method toggle
+     *  already follows. Peek and Math have no such restriction. */
     suspend fun setEffectEnabled(effectId: String, enabled: Boolean) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val store = loadLocked().withFixedEffects()
