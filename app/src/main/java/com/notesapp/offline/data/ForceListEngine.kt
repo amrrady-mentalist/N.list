@@ -45,6 +45,34 @@ object ForceListEngine {
         return arr
     }
 
+    /**
+     * Inserts [value] into [items] at the position encoded by the last
+     * [codeDigits] digits of [pinDigits] (wrapping via modulo, "000"/"00"
+     * == the last position) — used instead of [buildForcedList] when the
+     * Force Item is literally --value--, since the value coming back from
+     * Inject is whatever the spectator wrote down somewhere else and isn't
+     * necessarily one of the predefined items [buildForcedList] searches
+     * for. The count used for the position math includes the inserted
+     * value itself, matching what the spectator will actually see once
+     * it's on screen.
+     */
+    fun insertForcedValue(items: List<String>, value: String, pinDigits: String): List<String> {
+        val arr = actualItems(items).toMutableList()
+        val trimmedValue = value.trim()
+        if (trimmedValue.isEmpty()) return arr
+
+        val finalCount = arr.size + 1
+        val digits = codeDigits(items)
+        val base = if (digits == 2) 100 else 1000
+        val pinValue = pinDigits.toIntOrNull() ?: 0
+        val effectiveValue = if (pinValue == 0) base else pinValue
+        val targetPos = ((effectiveValue - 1) % finalCount) + 1 // 1-indexed
+
+        val insertAt = (targetPos - 1).coerceAtMost(arr.size)
+        arr.add(insertAt, trimmedValue)
+        return arr
+    }
+
     /** The last N digits of the entered PIN, where N = codeDigits(items). */
     fun relevantDigits(items: List<String>, pin: String): String {
         val digits = codeDigits(items)
