@@ -403,7 +403,7 @@ fun EffectEditorScreen(
 
                     FieldLabel("Offline peek", fgColor)
                     Text(
-                        "On a note created by Math, tap the Bold (B) button to show the equation's result in that note's title \u2014 no network, nothing sent. Tap it again to hide it. Works even with Inject Mode off.",
+                        "Tap the Bold (B) button on any note to show the equation's result in that note's title \u2014 no network, nothing sent. Tap it again to hide it. Works even with Inject Mode off, as long as Math is enabled.",
                         color = fgColor.copy(alpha = 0.6f),
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
@@ -413,7 +413,7 @@ fun EffectEditorScreen(
                     FieldLabel("Inject", fgColor)
                     DirectionToggleRow(
                         label = "Send to Inject",
-                        sublabel = "Sends the equation's result to your Inject API when the trigger below fires.",
+                        sublabel = "Sends the equation's result to your Inject API when the trigger below fires \u2014 only when the note actually has numbers on it, so this stays quiet on notes meant for Peek instead.",
                         checked = current.injectSendOn,
                         fgColor = fgColor,
                         onToggle = { persist(current.copy(injectSendOn = it)) }
