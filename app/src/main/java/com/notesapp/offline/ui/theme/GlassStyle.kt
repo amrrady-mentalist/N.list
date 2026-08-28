@@ -35,17 +35,15 @@ object GlassRadius {
 fun Modifier.glassPanel(
     radius: Dp = GlassRadius.md,
     tint: Color = Color.White,
-    fill: Color = tint.copy(alpha = 0.07f),
-    borderColor: Color = tint.copy(alpha = 0.20f)
+    fill: Color = if (tint == Color.Black) Color(0xFFF2F2F7) else Color(0xFF1E1E22),
+    borderColor: Color = Color.Transparent
 ): Modifier = this
     .clip(RoundedCornerShape(radius))
-    .background(
-        Brush.linearGradient(
-            colors = listOf(tint.copy(alpha = 0.16f), Color.Transparent),
-        )
-    )
     .background(fill)
-    .border(1.dp, borderColor, RoundedCornerShape(radius))
+    .then(
+        if (borderColor != Color.Transparent) Modifier.border(1.dp, borderColor, RoundedCornerShape(radius))
+        else Modifier
+    )
 
 /**
  * The soft, out-of-focus color blobs that sit behind the whole app on a

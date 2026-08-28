@@ -7,15 +7,15 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Palette pulled directly from the web app's CSS custom properties
-// (--blob-violet / --blob-rose / --blob-teal / --blob-amber / --accent-a/b
-// / --danger) so the native version reads as the same product.
+// Golden amber palette matching the primary accent color from screenshot (#EEA000)
+val GoldenAmber = Color(0xFFEEA000)
+val GoldenAmberLight = Color(0xFFFFB72B)
 val BlobViolet = Color(0xFF8B7CFF)
 val BlobRose = Color(0xFFFF7AA2)
 val BlobTeal = Color(0xFF4FE8C4)
 val BlobAmber = Color(0xFFFFC35A)
-val AccentA = BlobViolet
-val AccentB = BlobTeal
+val AccentA = GoldenAmber
+val AccentB = GoldenAmberLight
 val Danger = Color(0xFFFF6B6B)
 
 private val DarkColors = darkColorScheme(

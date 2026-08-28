@@ -1,5 +1,8 @@
 package com.notesapp.offline.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -12,12 +15,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
@@ -28,7 +34,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,10 +55,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,6 +71,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NoteColor
+import com.notesapp.offline.ui.theme.AccentA
 import com.notesapp.offline.ui.theme.Danger
 import com.notesapp.offline.ui.theme.GlassRadius
 import com.notesapp.offline.ui.theme.glassPanel
@@ -76,6 +92,11 @@ fun NotesListScreen(
     val filter by viewModel.filter.collectAsState()
     val query by viewModel.query.collectAsState()
 
+    var isSearchExpanded by remember { mutableStateOf(false) }
+    var isGridView by remember { mutableStateOf(true) }
+    var showOptionsMenu by remember { mutableStateOf(false) }
+    val searchFocusRequester = remember { FocusRequester() }
+
     val bgColor = if (isDarkTheme) Color.Black else Color.White
     val fgColor = if (isDarkTheme) Color.White else Color.Black
 
@@ -84,9 +105,18 @@ fun NotesListScreen(
     LaunchedEffect(query) {
         if (query.trim().equals("magic", ignoreCase = true)) {
             viewModel.setQuery("")
+            isSearchExpanded = false
             onOpenMagicSettings()
         }
     }
+
+    LaunchedEffect(isSearchExpanded) {
+        if (isSearchExpanded) {
+            searchFocusRequester.requestFocus()
+        }
+    }
+
+    val noteCountText = "${notes.size} ${if (notes.size == 1) "note" else "notes"}"
 
     Box(
         modifier = Modifier
@@ -94,80 +124,245 @@ fun NotesListScreen(
             .background(bgColor)
     ) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-            // Header — double-tap "Notes" to enter the lock/blackout flow,
-            // the performer's way in without closing and reopening the app.
+            // Top action buttons row (Search and 3-dots Menu)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 18.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = {
+                    isSearchExpanded = !isSearchExpanded
+                    if (!isSearchExpanded) viewModel.setQuery("")
+                }) {
+                    Icon(
+                        imageVector = if (isSearchExpanded) Icons.Filled.Close else Icons.Filled.Search,
+                        contentDescription = "Search",
+                        tint = fgColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Box {
+                    IconButton(onClick = { showOptionsMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.MoreVert,
+                            contentDescription = "More options",
+                            tint = fgColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showOptionsMenu,
+                        onDismissRequest = { showOptionsMenu = false },
+                        modifier = Modifier
+                            .background(if (isDarkTheme) Color(0xFF1E1E1E) else Color(0xFFF7F7F7))
+                            .border(1.dp, fgColor.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(if (isDarkTheme) "Light Theme" else "Dark Theme", color = fgColor, fontSize = 14.sp) },
+                            onClick = {
+                                showOptionsMenu = false
+                                onToggleTheme()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (isGridView) "List View" else "Grid View", color = fgColor, fontSize = 14.sp) },
+                            onClick = {
+                                isGridView = !isGridView
+                                showOptionsMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Main Title & Note Count Header
+            // Double-tap on "Notes" still triggers the performer lock flow!
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp)
             ) {
                 Text(
                     text = "Notes",
                     color = fgColor,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 38.sp,
+                    letterSpacing = (-0.5).sp,
                     modifier = Modifier.pointerInput(Unit) {
                         detectTapGestures(onDoubleTap = { onEnterLockFlow() })
                     }
                 )
-                IconButton(onClick = onToggleTheme) {
-                    ThemeToggleIcon(isDarkTheme = isDarkTheme, fgColor = fgColor, bgColor = bgColor)
+                Text(
+                    text = noteCountText,
+                    color = fgColor.copy(alpha = 0.45f),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Normal,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+                )
+            }
+
+            // Inline Search Bar (when expanded)
+            AnimatedVisibility(visible = isSearchExpanded, enter = fadeIn(), exit = fadeOut()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 6.dp)
+                        .glassPanel(radius = GlassRadius.md, tint = fgColor)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        if (query.isEmpty()) {
+                            Text("Search notes...", color = fgColor.copy(alpha = 0.34f), fontSize = 15.sp)
+                        }
+                        BasicTextField(
+                            value = query,
+                            onValueChange = viewModel::setQuery,
+                            singleLine = true,
+                            textStyle = TextStyle(color = fgColor, fontSize = 15.sp),
+                            cursorBrush = SolidColor(fgColor),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(searchFocusRequester)
+                        )
+                    }
                 }
             }
 
-            // Search bar
-            Row(
+            // Categories / Filter horizontal bar
+            LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp)
-                    .glassPanel(radius = GlassRadius.md, tint = fgColor)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(top = 4.dp, bottom = 12.dp),
+                contentPadding = PaddingValues(horizontal = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    if (query.isEmpty()) {
-                        Text("Search notes", color = fgColor.copy(alpha = 0.34f), fontSize = 15.sp)
+                // Layout Toggle Pill (Icon)
+                item {
+                    val pillBg = if (isDarkTheme) Color(0xFF262626) else Color(0xFFE8E8E8)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(pillBg)
+                            .clickable { isGridView = !isGridView }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Canvas(modifier = Modifier.size(17.dp, 16.dp)) {
+                            if (isGridView) {
+                                // Split / Notebook icon
+                                val w = size.width
+                                val h = size.height
+                                drawRoundRect(
+                                    color = fgColor.copy(alpha = 0.9f),
+                                    topLeft = Offset(0f, 0f),
+                                    size = androidx.compose.ui.geometry.Size(w, h),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx())
+                                )
+                                drawLine(
+                                    color = fgColor.copy(alpha = 0.9f),
+                                    start = Offset(w * 0.36f, 0f),
+                                    end = Offset(w * 0.36f, h),
+                                    strokeWidth = 1.6.dp.toPx()
+                                )
+                            } else {
+                                // Grid icon
+                                val w = size.width
+                                val h = size.height
+                                drawRoundRect(
+                                    color = fgColor.copy(alpha = 0.9f),
+                                    topLeft = Offset(0f, 0f),
+                                    size = androidx.compose.ui.geometry.Size(w, h),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx())
+                                )
+                                drawLine(
+                                    color = fgColor.copy(alpha = 0.9f),
+                                    start = Offset(w / 2f, 0f),
+                                    end = Offset(w / 2f, h),
+                                    strokeWidth = 1.6.dp.toPx()
+                                )
+                                drawLine(
+                                    color = fgColor.copy(alpha = 0.9f),
+                                    start = Offset(0f, h / 2f),
+                                    end = Offset(w, h / 2f),
+                                    strokeWidth = 1.6.dp.toPx()
+                                )
+                            }
+                        }
                     }
-                    BasicTextField(
-                        value = query,
-                        onValueChange = viewModel::setQuery,
-                        singleLine = true,
-                        textStyle = androidx.compose.ui.text.TextStyle(color = fgColor, fontSize = 15.sp),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(fgColor),
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
-            }
 
-            // Filter chips
-            LazyRow(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                contentPadding = PaddingValues(horizontal = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(NoteFilter.entries.toList()) { f ->
-                    FilterChip(
-                        label = f.name.lowercase().replaceFirstChar { it.uppercase() },
-                        active = filter == f,
-                        fgColor = fgColor,
-                        onClick = { viewModel.setFilter(f) }
-                    )
+                // Filter items styled as modern rounded rectangle pills
+                val filterItems = listOf(
+                    NoteFilter.ALL to "All notes",
+                    NoteFilter.PINNED to "Favorites",
+                    NoteFilter.CHECKLISTS to "Checklists",
+                    NoteFilter.DRAWINGS to "Drawings",
+                    NoteFilter.ARCHIVED to "Archived"
+                )
+
+                items(filterItems) { (f, label) ->
+                    val active = filter == f
+                    val pillBg = if (active) {
+                        if (isDarkTheme) Color(0xFF383838) else Color(0xFFD6D6D6)
+                    } else {
+                        if (isDarkTheme) Color(0xFF262626) else Color(0xFFE8E8E8)
+                    }
+                    val textColor = if (active) fgColor else fgColor.copy(alpha = 0.65f)
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(pillBg)
+                            .clickable { viewModel.setFilter(f) }
+                            .padding(horizontal = 18.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            color = textColor,
+                            fontSize = 14.5.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium
+                        )
+                    }
                 }
             }
 
             if (notes.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No notes yet — tap + to create one", color = fgColor.copy(alpha = 0.5f))
+                    Text("No notes yet — tap + to create one", color = fgColor.copy(alpha = 0.45f))
                 }
-            } else {
+            } else if (isGridView) {
                 LazyVerticalStaggeredGrid(
                     columns = StaggeredGridCells.Fixed(2),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(14.dp, 4.dp, 14.dp, 110.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalItemSpacing = 12.dp
+                ) {
+                    items(notes, key = { it.id }) { note ->
+                        NoteCard(
+                            note = note,
+                            fgColor = fgColor,
+                            bgColor = bgColor,
+                            onClick = { onOpenNote(note.id) },
+                            onTogglePin = { viewModel.togglePin(note.id) },
+                            onToggleArchive = { viewModel.toggleArchive(note.id) },
+                            onDelete = { viewModel.delete(note.id) }
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(14.dp, 4.dp, 14.dp, 110.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(notes, key = { it.id }) { note ->
                         NoteCard(
@@ -264,12 +459,14 @@ private fun NoteCard(
     onDelete: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val cardBg = if (bgColor == Color.Black) Color(0xFF1E1E22) else Color(0xFFF2F2F7)
 
     Box {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .glassPanel(radius = GlassRadius.md, tint = fgColor)
+                .clip(RoundedCornerShape(16.dp))
+                .background(cardBg)
                 .combinedClickable(onClick = onClick, onLongClick = { showMenu = true })
                 .padding(14.dp)
         ) {
@@ -325,7 +522,7 @@ private fun NoteCard(
                                     .size(13.dp)
                                     .clip(CircleShape)
                                     .background(
-                                        if (item.done) Color(0xFF4FE8C4) else fgColor.copy(alpha = 0.15f)
+                                        if (item.done) AccentA else fgColor.copy(alpha = 0.15f)
                                     )
                             )
                             Text(

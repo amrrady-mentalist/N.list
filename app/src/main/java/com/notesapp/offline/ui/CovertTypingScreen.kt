@@ -51,12 +51,11 @@ import com.notesapp.offline.data.CovertTypingConfig
 import com.notesapp.offline.data.CovertTypingEngine
 import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.MagicStore
+import com.notesapp.offline.ui.theme.AccentA
+import com.notesapp.offline.ui.theme.AccentB
 import com.notesapp.offline.ui.theme.GlassRadius
 import com.notesapp.offline.ui.theme.glassPanel
 import kotlinx.coroutines.launch
-
-private val AccentA = Color(0xFF4FE8C4)
-private val AccentB = Color(0xFF8B7CFF)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

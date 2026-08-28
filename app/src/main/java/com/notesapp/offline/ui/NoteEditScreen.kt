@@ -20,7 +20,10 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -74,6 +77,7 @@ import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.MathEquationEngine
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NoteColor
+import com.notesapp.offline.ui.theme.AccentA
 import com.notesapp.offline.ui.theme.RunsVisualTransformation
 import com.notesapp.offline.ui.theme.applyEditToRuns
 import com.notesapp.offline.ui.theme.toComposeColor
@@ -95,6 +99,7 @@ fun decodeBase64ToBitmap(base64: String) = runCatching {
  * whole Column means it rides up together with the keyboard and eases back
  * down when it closes.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NoteEditScreen(
     viewModel: NotesViewModel,
@@ -324,35 +329,30 @@ fun NoteEditScreen(
         }
     }
 
+    val isImeOpen = WindowInsets.isImeVisible
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor)
             .statusBarsPadding()
             .imePadding()
-            .padding(horizontal = 16.dp)
     ) {
         // Intercepts the system back gesture too, not just the on-screen
         // arrow, so an emptied-out note gets cleaned up either way.
         BackHandler(onBack = { handleBack() })
 
         // Minimal top row — no AppBar chrome, just icons on the solid background.
-        Row(modifier = Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             IconButton(onClick = { handleBack() }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = fgColor)
             }
             Box(modifier = Modifier.weight(1f))
-            IconButton(onClick = { showColorPicker = !showColorPicker }) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (current.color == NoteColor.NONE) Color.Gray.copy(alpha = 0.4f)
-                            else current.color.toComposeColor()
-                        )
-                )
-            }
             if (existing != null) {
                 Text(
                     text = if (current.archived) "Unarchive" else "Archive",
@@ -387,10 +387,6 @@ fun NoteEditScreen(
 
         // Drawing preview + body/checklist share a single scroll region, so
         // scrolling to read/write the note also scrolls past the preview.
-        // The preview's height is tied directly to that scroll offset —
-        // full-size at the top, shrinking down to a small strip as the user
-        // scrolls — so it never permanently eats the whole screen the way a
-        // fixed-size full-width image would.
         val bodyScrollState = rememberScrollState()
         val density = LocalDensity.current
         val maxImageHeight = 260.dp
@@ -403,18 +399,12 @@ fun NoteEditScreen(
             }
         } else 0.dp
 
-        // Tapping anywhere in this region — blank space below short text,
-        // padding around the edges, the gap under a short checklist —
-        // brings up the keyboard by focusing the body field. This click
-        // handler sits on the outer, full-height Box; taps that land on
-        // an actual child (the drawing image, a checklist row, the text
-        // field itself) are consumed by that child first and never reach
-        // it, so this only fires for genuinely empty space.
         val bodyFocusRequester = remember { FocusRequester() }
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .padding(horizontal = 16.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -427,14 +417,6 @@ fun NoteEditScreen(
                     .fillMaxSize()
                     .verticalScroll(bodyScrollState)
             ) {
-                // Title now lives INSIDE the scroll region instead of being
-                // pinned above it — it scrolls away together with the body
-                // as you read/write further down the note. Previously it
-                // sat in its own fixed block outside the scrollable Column,
-                // which drew a hard, static edge right where the scrolling
-                // content started/ended underneath it; folding it into the
-                // same scroll region removes that seam entirely, the same
-                // way a "collapsing header" note app title behaves.
                 Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     if (current.title.isEmpty()) {
                         Text("Title", color = fgColor.copy(alpha = 0.32f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -500,16 +482,9 @@ fun NoteEditScreen(
             isBoldActive = activeBold,
             isItalicActive = activeItalic,
             isUnderlineActive = activeUnderline,
+            isKeyboardOpen = isImeOpen,
             onToggleBold = {
                 activeBold = !activeBold
-                // Math's offline peek: whenever Math is enabled, the Bold
-                // button doubles as a total-reveal toggle on the
-                // currently-open note — shows the equation's result in the
-                // title, no network involved, and puts the original title
-                // back when tapped again. (Notes aren't tagged as
-                // "belonging" to Math the way a Force List note is, so this
-                // applies to whichever note is open rather than requiring
-                // a link that nothing actually creates.)
                 val mfx = mathEffect
                 if (mfx != null) {
                     if (!mathPeekOn) {
@@ -547,13 +522,14 @@ fun NoteEditScreen(
                 }
             },
             onSketch = {
-                // Persist unconditionally (bypassing persist()'s empty-note
-                // guard) so a stable note id exists for the drawing screen
-                // to save back into, even for a brand-new blank note.
                 viewModel.save(current)
                 onOpenDrawing(current.id)
             },
-            modifier = Modifier.padding(vertical = 10.dp),
+            selectedColor = current.color,
+            onSelectColor = { c ->
+                persist(current.copy(color = c))
+            },
+            isDarkTheme = isDarkTheme,
             tint = fgColor,
             accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
         )
@@ -598,8 +574,8 @@ private fun ChecklistEditor(items: List<ChecklistItem>, fgColor: Color, onChange
                     modifier = Modifier
                         .size(20.dp)
                         .clip(CircleShape)
-                        .background(if (item.done) Color(0xFF4FE8C4) else Color.Transparent)
-                        .border(1.5.dp, if (item.done) Color(0xFF4FE8C4) else fgColor.copy(alpha = 0.35f), CircleShape)
+                        .background(if (item.done) AccentA else Color.Transparent)
+                        .border(1.5.dp, if (item.done) AccentA else fgColor.copy(alpha = 0.35f), CircleShape)
                         .clickable {
                             onChange(items.map { if (it.id == item.id) it.copy(done = !it.done) else it })
                         }
