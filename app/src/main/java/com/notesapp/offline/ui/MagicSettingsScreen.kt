@@ -100,6 +100,7 @@ fun MagicSettingsScreen(
     onOpenEffect: (String) -> Unit,
     onOpenForceLists: () -> Unit,
     onOpenMultipleOuts: () -> Unit,
+    onOpenCovertTyping: () -> Unit,
     onOpenInputMethod: (LockMode) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -443,6 +444,20 @@ fun MagicSettingsScreen(
                     activeName = activeWord?.name?.ifBlank { "Multiple Outs" },
                     fgColor = fgColor,
                     onClick = onOpenMultipleOuts,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                )
+            }
+
+            // Covert Typing Navigation Card
+            item {
+                val isCovertActive = store.covertTyping.enabled
+                SettingsNavigationCard(
+                    title = "Covert Typing",
+                    subtitle = "Secret keystroke capture displaying a pre-saved cover sentence",
+                    countText = if (isCovertActive) "Enabled" else "Disabled",
+                    activeName = if (isCovertActive) "Hold Italic (I) to Arm" else null,
+                    fgColor = fgColor,
+                    onClick = onOpenCovertTyping,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                 )
             }

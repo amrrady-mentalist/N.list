@@ -1,7 +1,9 @@
 package com.notesapp.offline.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -107,6 +109,7 @@ fun RichTextToolbar(
     onToggleChecklist: () -> Unit,
     onSketch: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongPressItalic: (() -> Unit)? = null,
     tint: Color = Color.White,
     accent: Color = Color(0xFF8B7CFF)
 ) {
@@ -130,7 +133,7 @@ fun RichTextToolbar(
             ToolbarButtonContainer(onClick = onToggleBold) {
                 Text("B", color = if (isBoldActive) accent else tint, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             }
-            ToolbarButtonContainer(onClick = onToggleItalic) {
+            ToolbarButtonContainer(onClick = onToggleItalic, onLongClick = onLongPressItalic) {
                 Text("I", color = if (isItalicActive) accent else tint, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)
             }
             ToolbarButtonContainer(onClick = onToggleUnderline) {
@@ -155,16 +158,24 @@ fun RichTextToolbar(
 /** No background at all — the button is just its icon/glyph, floating
  *  directly on the toolbar's glass panel. Active state is communicated
  *  purely through the content's own color (see call sites), not a box. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ToolbarButtonContainer(
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Box(
         modifier = Modifier
             .size(42.dp)
             .clip(CircleShape)
-            .clickable(onClick = onClick),
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                } else {
+                    Modifier.clickable(onClick = onClick)
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         content()

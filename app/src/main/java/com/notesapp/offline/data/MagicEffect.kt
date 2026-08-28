@@ -100,6 +100,20 @@ data class MagicEffect(
 )
 
 @Serializable
+enum class CovertLetterPosition {
+    FIRST, SECOND, THIRD, LAST
+}
+
+@Serializable
+data class CovertTypingConfig(
+    val enabled: Boolean = false,
+    val preSavedSentence: String = "Don't forget to pick up groceries and water for the team.",
+    val sendToInject: Boolean = true,
+    val revealOnSubsequentLines: Boolean = true,
+    val targetLetterPosition: CovertLetterPosition = CovertLetterPosition.FIRST
+)
+
+@Serializable
 enum class LockMode { CLASSIC, HOME_SCREEN }
 
 /**
@@ -137,7 +151,9 @@ data class MagicStore(
      *  the API for `--value--` (and strip that token from any effect text
      *  that has it, rather than showing it literally), and never arm the
      *  proximity/volume send triggers no matter what the active effect is. */
-    val injectModeOn: Boolean = false
+    val injectModeOn: Boolean = false,
+    /** Covert Typing effect configuration. */
+    val covertTyping: CovertTypingConfig = CovertTypingConfig()
 ) {
     val activeEffect: MagicEffect? get() = effects.firstOrNull { it.id == activeEffectId }
 

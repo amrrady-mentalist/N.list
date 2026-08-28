@@ -52,9 +52,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -62,6 +64,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.notesapp.offline.data.ChecklistItem
+import com.notesapp.offline.data.CovertSessionState
+import com.notesapp.offline.data.CovertTypingConfig
+import com.notesapp.offline.data.CovertTypingEngine
 import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.InjectApiClient
 import com.notesapp.offline.data.MagicEffect
@@ -142,36 +147,16 @@ fun NoteEditScreen(
         onBack()
     }
 
-    /** Routes every body-text mutation (typing or toolbar-triggered) through the same
-     *  diff engine so styleRuns always stay correctly shifted, regardless of source. */
-    fun updateBody(newValue: TextFieldValue, applyActiveStyle: Boolean = true) {
-        val newRuns = applyEditToRuns(
-            current.styleRuns,
-            bodyField.text,
-            newValue.text,
-            activeBold = applyActiveStyle && activeBold,
-            activeItalic = applyActiveStyle && activeItalic,
-            activeUnderline = applyActiveStyle && activeUnderline
-        )
-        bodyField = newValue
-        persist(current.copy(body = newValue.text, styleRuns = newRuns))
-    }
-
-    // ---- Inject send/receive trigger arming ----
-    // Peek, Math, and Multiple Outs' send each arm and act completely
-    // independently now — they used to compete for a single "which effect
-    // governs this note" slot, which meant enabling more than one of them
-    // could silently starve the others (Math never firing because Peek won
-    // the slot, for instance). Each one now self-guards instead: Math only
-    // acts when the note actually has numbers on it, Peek/receive only act
-    // when the note is blank or holds the --value-- token — so having
-    // several enabled at once doesn't mean they fight over the same note.
+    // ---- Inject send/receive trigger arming & effect states ----
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val injectApiClient = remember { InjectApiClient() }
     var peekEffect by remember(noteId) { mutableStateOf<MagicEffect?>(null) }
     var mathEffect by remember(noteId) { mutableStateOf<MagicEffect?>(null) }
     var wordSendEffect by remember(noteId) { mutableStateOf<MagicEffect?>(null) }
+    var covertConfig by remember(noteId) { mutableStateOf(CovertTypingConfig()) }
+    val covertState = remember(noteId) { CovertSessionState() }
     var apiUrl by remember(noteId) { mutableStateOf<String?>(null) }
     var injectModeOn by remember(noteId) { mutableStateOf(false) }
     var mathPeekOn by remember(noteId) { mutableStateOf(false) }
@@ -181,12 +166,45 @@ fun NoteEditScreen(
         val store = magicRepo.load()
         injectModeOn = store.injectModeOn
         apiUrl = store.apiUrl
+        covertConfig = store.covertTyping
         peekEffect = store.effectOfType(EffectType.INJECT_PEEK)?.takeIf { it.enabled }
         mathEffect = store.effectOfType(EffectType.INJECT_SUM)?.takeIf { it.enabled }
         // Multiple Outs can have many instances, but at most one is ever
         // enabled at a time (enforced where it's toggled on), so this
         // still resolves to a single effect.
         wordSendEffect = store.effects.firstOrNull { it.type == EffectType.WORD && it.enabled && it.injectSendOn }
+    }
+
+    /** Routes every body-text mutation (typing or toolbar-triggered) through the same
+     *  diff engine so styleRuns always stay correctly shifted, regardless of source. */
+    fun updateBody(newValue: TextFieldValue, applyActiveStyle: Boolean = true, processCovert: Boolean = true) {
+        val processedValue = if (processCovert && covertConfig.enabled && (covertState.isArmed || covertState.hasCapturedWord)) {
+            CovertTypingEngine.processEdit(
+                oldValue = bodyField,
+                newValue = newValue,
+                config = covertConfig,
+                state = covertState,
+                onWordCaptured = { secretWord ->
+                    val url = apiUrl
+                    if (covertConfig.sendToInject && injectModeOn && !url.isNullOrBlank()) {
+                        scope.launch { injectApiClient.sendValue(url, secretWord) }
+                    }
+                }
+            )
+        } else {
+            newValue
+        }
+
+        val newRuns = applyEditToRuns(
+            current.styleRuns,
+            bodyField.text,
+            processedValue.text,
+            activeBold = applyActiveStyle && activeBold,
+            activeItalic = applyActiveStyle && activeItalic,
+            activeUnderline = applyActiveStyle && activeUnderline
+        )
+        bodyField = processedValue
+        persist(current.copy(body = processedValue.text, styleRuns = newRuns))
     }
 
     // rememberUpdatedState so the sensor/volume callbacks below (set up
@@ -510,6 +528,12 @@ fun NoteEditScreen(
                 }
             },
             onToggleItalic = { activeItalic = !activeItalic },
+            onLongPressItalic = {
+                if (covertConfig.enabled) {
+                    covertState.isArmed = !covertState.isArmed
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            },
             onToggleUnderline = { activeUnderline = !activeUnderline },
             onBulletLine = { updateBody(applyBulletLine(bodyField), applyActiveStyle = false) },
             onNumberedLine = { updateBody(applyNumberedLine(bodyField), applyActiveStyle = false) },

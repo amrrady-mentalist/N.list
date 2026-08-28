@@ -191,5 +191,12 @@ class MagicRepository(context: Context) {
             saveLocked(store.copy(lockMode = mode))
         }
     }
+
+    suspend fun updateCovertTyping(config: CovertTypingConfig) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val store = loadLocked().withFixedEffects()
+            saveLocked(store.copy(covertTyping = config))
+        }
+    }
 }
 
