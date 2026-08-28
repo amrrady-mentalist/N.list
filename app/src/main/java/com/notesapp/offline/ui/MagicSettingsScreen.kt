@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -97,6 +98,8 @@ fun MagicSettingsScreen(
     isDarkTheme: Boolean,
     onBack: () -> Unit,
     onOpenEffect: (String) -> Unit,
+    onOpenForceLists: () -> Unit,
+    onOpenMultipleOuts: () -> Unit,
     onOpenInputMethod: (LockMode) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -403,7 +406,7 @@ fun MagicSettingsScreen(
 
                     SectionLabel("Effects", fgColor, topPadding = 24.dp)
                     Text(
-                        "Force List and Multiple Outs share the PIN, so only one instance across both can be active at a time. Peek and Math are independent. Tap a row to customize it.",
+                        "Force Lists and Multiple Outs share the PIN — tap either to view all lists/outs and adjust settings. Peek and Math are independent.",
                         color = fgColor.copy(alpha = 0.34f),
                         fontSize = 12.sp,
                         lineHeight = 17.sp,
@@ -412,110 +415,36 @@ fun MagicSettingsScreen(
                 }
             }
 
-            // Turns one PIN-reveal effect (Force List or Multiple Outs,
-            // any instance of either) on, and — since at most one can be
-            // active at a time — unpins whichever OTHER Force List note
-            // was previously showing on the main notes screen, so only the
-            // currently-active one stays pinned there.
-            fun activatePinEffect(fx: MagicEffect, enabled: Boolean) {
-                scope.launch {
-                    val previouslyActive = store.enabledPinEffect
-                    repo.setEffectEnabled(fx.id, enabled)
-                    store = repo.load()
-
-                    if (enabled && previouslyActive != null && previouslyActive.id != fx.id &&
-                        previouslyActive.type == EffectType.LIST
-                    ) {
-                        previouslyActive.linkedNoteId?.let { noteId ->
-                            notesRepo.loadAll().firstOrNull { it.id == noteId }?.let { note ->
-                                notesRepo.upsert(note.copy(pinned = false))
-                            }
-                        }
-                    }
-
-                    // Let a Force List's plain item list show up as a note
-                    // the instant it's turned on, so it can be shown to a
-                    // spectator before the PIN force ever happens — reuses
-                    // the same linked note the PIN-resolve flow later
-                    // overwrites in place, so this never creates a
-                    // duplicate.
-                    if (enabled && fx.type == EffectType.LIST) {
-                        val plain = ForceListEngine.actualItems(fx.items)
-                        if (plain.isNotEmpty()) {
-                            val numbered = plain.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
-                            val existingNote = fx.linkedNoteId?.let { id -> notesRepo.loadAll().firstOrNull { it.id == id } }
-                            val note = (existingNote ?: Note(magicEffectId = fx.id)).copy(
-                                title = fx.title,
-                                body = numbered,
-                                checklist = emptyList(),
-                                pinned = true,
-                                archived = false
-                            )
-                            notesRepo.upsert(note)
-                            if (existingNote == null) {
-                                repo.updateEffect(fx.copy(linkedNoteId = note.id))
-                                store = repo.load()
-                            }
-                        }
-                    }
-                }
-            }
-
-            fun createInstance(type: EffectType, baseName: String) {
-                scope.launch {
-                    val count = store.effects.count { it.type == type }
-                    val created = repo.createEffect(type, if (count == 0) baseName else "$baseName ${count + 1}")
-                    store = repo.load()
-                    onOpenEffect(created.id)
-                }
-            }
-
+            // Force Lists Navigation Card
             item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    SectionLabel("Force List", fgColor, topPadding = 16.dp)
-                }
-            }
-            items(store.effects.filter { it.type == EffectType.LIST }, key = { it.id }) { fx ->
-                EffectToggleRow(
-                    label = fx.name.ifBlank { "Force List" },
+                val listEffects = store.effects.filter { it.type == EffectType.LIST }
+                val activeList = listEffects.firstOrNull { it.enabled }
+                val countText = "${listEffects.size} " + if (listEffects.size == 1) "list" else "lists"
+                SettingsNavigationCard(
+                    title = "Force Lists",
                     subtitle = "Reads the position a PIN encodes and forces an item into it",
-                    checked = fx.enabled,
+                    countText = countText,
+                    activeName = activeList?.name?.ifBlank { "Force List" },
                     fgColor = fgColor,
-                    onToggle = { enabled -> activatePinEffect(fx, enabled) },
-                    onClick = { onOpenEffect(fx.id) },
+                    onClick = onOpenForceLists,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                 )
-            }
-            item {
-                GlassTextPill(
-                    "+ Add Force List",
-                    fgColor,
-                    modifier = Modifier.padding(start = 20.dp, top = 4.dp, bottom = 8.dp)
-                ) { createInstance(EffectType.LIST, "Force List") }
             }
 
+            // Multiple Outs Navigation Card
             item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    SectionLabel("Multiple Outs", fgColor, topPadding = 16.dp)
-                }
-            }
-            items(store.effects.filter { it.type == EffectType.WORD }, key = { it.id }) { fx ->
-                EffectToggleRow(
-                    label = fx.name.ifBlank { "Multiple Outs" },
-                    subtitle = "Multiple code \u2192 word outs, revealed by the PIN's last digits",
-                    checked = fx.enabled,
+                val wordEffects = store.effects.filter { it.type == EffectType.WORD }
+                val activeWord = wordEffects.firstOrNull { it.enabled }
+                val countText = "${wordEffects.size} " + if (wordEffects.size == 1) "effect" else "effects"
+                SettingsNavigationCard(
+                    title = "Multiple Outs",
+                    subtitle = "Multiple code \u2192 word/sketch outs, revealed by the PIN's last digits",
+                    countText = countText,
+                    activeName = activeWord?.name?.ifBlank { "Multiple Outs" },
                     fgColor = fgColor,
-                    onToggle = { enabled -> activatePinEffect(fx, enabled) },
-                    onClick = { onOpenEffect(fx.id) },
+                    onClick = onOpenMultipleOuts,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                 )
-            }
-            item {
-                GlassTextPill(
-                    "+ Add Multiple Outs",
-                    fgColor,
-                    modifier = Modifier.padding(start = 20.dp, top = 4.dp, bottom = 8.dp)
-                ) { createInstance(EffectType.WORD, "Multiple Outs") }
             }
 
             item {
@@ -690,7 +619,7 @@ private fun EffectToggleRow(
 }
 
 @Composable
-private fun ToggleSwitch(checked: Boolean, fgColor: Color, onToggle: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+fun ToggleSwitch(checked: Boolean, fgColor: Color, onToggle: (Boolean) -> Unit, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .size(width = 44.dp, height = 26.dp)
@@ -1236,3 +1165,78 @@ fun WidgetPickerDialog(
         }
     }
 }
+
+@Composable
+fun SettingsNavigationCard(
+    title: String,
+    subtitle: String,
+    countText: String,
+    activeName: String?,
+    fgColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .glassPanel(radius = GlassRadius.md, tint = fgColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = fgColor, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                if (activeName != null) {
+                    Text(
+                        "ACTIVE",
+                        color = AccentB,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 0.7.sp,
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .clip(RoundedCornerShape(100))
+                            .border(1.dp, AccentB, RoundedCornerShape(100))
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            Text(
+                subtitle,
+                color = fgColor.copy(alpha = 0.4f),
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 3.dp)
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 6.dp)
+            ) {
+                Text(
+                    countText,
+                    color = fgColor.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                if (activeName != null) {
+                    Text(
+                        " · Active: \"$activeName\"",
+                        color = AccentB.copy(alpha = 0.9f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = "Open $title",
+            tint = fgColor.copy(alpha = 0.4f),
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .size(20.dp)
+        )
+    }
+}
+

@@ -11,7 +11,7 @@
          to the real app theme once installSplashScreen() dismisses it. -->
     <style name="Theme.NotesNative.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#000000</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
         <item name="postSplashScreenTheme">@style/Theme.NotesNative</item>
     </style>
 </resources>

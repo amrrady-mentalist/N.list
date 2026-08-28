@@ -46,12 +46,14 @@ import com.notesapp.offline.data.ThemeMode
 import com.notesapp.offline.data.ThemeRepository
 import com.notesapp.offline.ui.DrawingScreen
 import com.notesapp.offline.ui.EffectEditorScreen
+import com.notesapp.offline.ui.ForceListsScreen
 import com.notesapp.offline.ui.InputMethodEditorScreen
 import com.notesapp.offline.ui.LockFlowHost
 import com.notesapp.offline.ui.LockFlowViewModel
 import com.notesapp.offline.ui.LockFlowViewModelFactory
 import com.notesapp.offline.ui.LockScreenState
 import com.notesapp.offline.ui.MagicSettingsScreen
+import com.notesapp.offline.ui.MultipleOutsScreen
 import com.notesapp.offline.ui.NoteEditScreen
 import com.notesapp.offline.ui.NotesListScreen
 import com.notesapp.offline.ui.NotesViewModel
@@ -77,9 +79,11 @@ sealed class Screen {
     data class Edit(val noteId: String?) : Screen()
     data class Drawing(val noteId: String) : Screen()
     data object MagicSettings : Screen()
+    data object ForceLists : Screen()
+    data object MultipleOuts : Screen()
     data class InputMethodEditor(val mode: LockMode) : Screen()
-    data class EffectEditor(val effectId: String) : Screen()
-    data class OutSketch(val effectId: String, val outId: String) : Screen()
+    data class EffectEditor(val effectId: String, val fromScreen: Screen = Screen.MagicSettings) : Screen()
+    data class OutSketch(val effectId: String, val outId: String, val fromScreen: Screen = Screen.MultipleOuts) : Screen()
 }
 
 /** Screens that show the (transparent) status bar; everything else goes immersive.
@@ -87,6 +91,7 @@ sealed class Screen {
  *  whether its status bar shows depends on which state the lock flow is in. */
 private fun Screen.showsSystemBars(): Boolean =
     this is Screen.List || this is Screen.Edit || this is Screen.MagicSettings ||
+        this is Screen.ForceLists || this is Screen.MultipleOuts ||
         this is Screen.Drawing || this is Screen.EffectEditor || this is Screen.OutSketch ||
         this is Screen.InputMethodEditor
 
@@ -264,7 +269,17 @@ private fun NotesApp(
     }
 
     BackHandler(enabled = screen !is Screen.List && screen !is Screen.Lock) {
-        screen = Screen.List
+        screen = when (val s = screen) {
+            is Screen.Edit -> Screen.List
+            is Screen.Drawing -> Screen.Edit(s.noteId)
+            is Screen.MagicSettings -> Screen.List
+            is Screen.ForceLists -> Screen.MagicSettings
+            is Screen.MultipleOuts -> Screen.MagicSettings
+            is Screen.InputMethodEditor -> Screen.MagicSettings
+            is Screen.EffectEditor -> s.fromScreen
+            is Screen.OutSketch -> Screen.EffectEditor(s.effectId, s.fromScreen)
+            else -> Screen.List
+        }
     }
 
     when (val s = screen) {
@@ -320,8 +335,24 @@ private fun NotesApp(
             themeRepo = themeRepo,
             isDarkTheme = isDarkTheme,
             onBack = { screen = Screen.List },
-            onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId) },
+            onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId, Screen.MagicSettings) },
+            onOpenForceLists = { screen = Screen.ForceLists },
+            onOpenMultipleOuts = { screen = Screen.MultipleOuts },
             onOpenInputMethod = { mode -> screen = Screen.InputMethodEditor(mode) }
+        )
+        is Screen.ForceLists -> ForceListsScreen(
+            repo = magicRepo,
+            notesRepo = notesRepo,
+            isDarkTheme = isDarkTheme,
+            onBack = { screen = Screen.MagicSettings },
+            onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId, Screen.ForceLists) }
+        )
+        is Screen.MultipleOuts -> MultipleOutsScreen(
+            repo = magicRepo,
+            notesRepo = notesRepo,
+            isDarkTheme = isDarkTheme,
+            onBack = { screen = Screen.MagicSettings },
+            onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId, Screen.MultipleOuts) }
         )
         is Screen.InputMethodEditor -> InputMethodEditorScreen(
             repo = magicRepo,
@@ -335,8 +366,8 @@ private fun NotesApp(
                 notesViewModel = notesViewModel,
                 effectId = s.effectId,
                 isDarkTheme = isDarkTheme,
-                onBack = { screen = Screen.MagicSettings },
-                onOpenSketch = { outId -> screen = Screen.OutSketch(s.effectId, outId) }
+                onBack = { screen = s.fromScreen },
+                onOpenSketch = { outId -> screen = Screen.OutSketch(s.effectId, outId, s.fromScreen) }
             )
         }
         is Screen.OutSketch -> {
@@ -368,12 +399,12 @@ private fun NotesApp(
                                 magicRepo.updateEffect(updated)
                             }
                             effectVersion++ // force EffectEditorScreen to re-read the fresh effect on return
-                            screen = Screen.EffectEditor(s.effectId)
+                            screen = Screen.EffectEditor(s.effectId, s.fromScreen)
                         }
                     },
                     onBack = {
                         effectVersion++
-                        screen = Screen.EffectEditor(s.effectId)
+                        screen = Screen.EffectEditor(s.effectId, s.fromScreen)
                     }
                 )
             }
