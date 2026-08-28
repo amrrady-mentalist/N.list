@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -141,7 +140,7 @@ fun RichTextToolbar(
     val pillBg = if (isDarkTheme) Color(0xFF2A2A30) else Color(0xFFD4D4DC)
 
     Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        // Expandable Sub-bar for Typography / Formatting (B, I, U, •, 1.)
+        // Expandable Sub-bar for Typography / Formatting (Underline, Checklist, •, 1.)
         AnimatedVisibility(
             visible = isAaExpanded && showFormatting,
             enter = expandVertically() + fadeIn(),
@@ -157,14 +156,11 @@ fun RichTextToolbar(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ToolbarButtonContainer(onClick = onToggleBold) {
-                    Text("B", color = if (isBoldActive) accent else tint, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                }
-                ToolbarButtonContainer(onClick = onToggleItalic, onLongClick = onLongPressItalic) {
-                    Text("I", color = if (isItalicActive) accent else tint, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)
-                }
                 ToolbarButtonContainer(onClick = onToggleUnderline) {
                     Text("U", color = if (isUnderlineActive) accent else tint, fontSize = 17.sp, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline)
+                }
+                ToolbarButtonContainer(onClick = onToggleChecklist) {
+                    ChecklistIcon(tint = if (isChecklist) accent else tint)
                 }
                 ToolbarButtonContainer(onClick = onBulletLine) {
                     Text("•", color = tint, fontSize = 22.sp, fontWeight = FontWeight.Bold)
@@ -225,27 +221,43 @@ fun RichTextToolbar(
 
         // Floating pill bottom bar when keyboard is hidden vs Full-width bar when keyboard is open
         if (!isKeyboardOpen) {
-            // Floating pill capsule (Style from 2nd screenshot)
+            // Floating pill capsule matching second screenshot
             Box(
                 modifier = Modifier
                     .padding(bottom = 12.dp)
                     .clip(RoundedCornerShape(26.dp))
                     .background(pillBg)
-                    .padding(horizontal = 18.dp, vertical = 6.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(22.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Magic / Drawing / Pen tool
+                    // Pen / Pencil drawing tool
                     ToolbarButtonContainer(onClick = onSketch) {
-                        MagicPenIcon(tint = tint)
+                        PencilIcon(tint = tint)
                     }
 
-                    // Checklist toggle
-                    ToolbarButtonContainer(onClick = onToggleChecklist) {
-                        ChecklistIcon(tint = if (isChecklist) accent else tint)
+                    // B button (Offline peek & Bold)
+                    ToolbarButtonContainer(onClick = onToggleBold) {
+                        Text(
+                            text = "B",
+                            color = if (isBoldActive) accent else tint,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // / button (Covert typing & Italic)
+                    ToolbarButtonContainer(onClick = onToggleItalic, onLongClick = onLongPressItalic) {
+                        Text(
+                            text = "/",
+                            color = if (isItalicActive) accent else tint,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontStyle = FontStyle.Italic
+                        )
                     }
 
                     // Plus / Add extras
@@ -255,38 +267,49 @@ fun RichTextToolbar(
                 }
             }
         } else {
-            // Full-width bar docked right above keyboard (Style from 1st screenshot)
+            // Full-width bar docked right above keyboard matching first screenshot
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(barBg)
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. Magic Pen / Drawing icon with sparkle
+                // 1. Pen / Pencil icon
                 ToolbarButtonContainer(onClick = onSketch) {
-                    MagicPenIcon(tint = tint)
+                    PencilIcon(tint = tint)
                 }
 
-                // 2. Erase / Scribble / Clean icon
-                ToolbarButtonContainer(onClick = { /* formatting or quick action */ }) {
-                    ScribbleIcon(tint = tint)
+                // 2. B (Bold & Offline Math Peek)
+                ToolbarButtonContainer(onClick = onToggleBold) {
+                    Text(
+                        text = "B",
+                        color = if (isBoldActive) accent else tint,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
-                // 3. Checklist circle checkmark
-                ToolbarButtonContainer(onClick = onToggleChecklist) {
-                    ChecklistIcon(tint = if (isChecklist) accent else tint)
+                // 3. / (Italic & Covert Typing long-press trigger)
+                ToolbarButtonContainer(onClick = onToggleItalic, onLongClick = onLongPressItalic) {
+                    Text(
+                        text = "/",
+                        color = if (isItalicActive) accent else tint,
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontStyle = FontStyle.Italic
+                    )
                 }
 
-                // 4. Aa (Typography / Formatting dropdown toggle)
+                // 4. Aa (Formatting expansion: Underline, Checklist, Bullets, Numbers)
                 ToolbarButtonContainer(onClick = {
                     isAaExpanded = !isAaExpanded
                     if (isAaExpanded) isPlusExpanded = false
                 }) {
                     Text(
                         text = "Aa",
-                        color = if (isAaExpanded || isBoldActive || isItalicActive || isUnderlineActive) accent else tint,
+                        color = if (isAaExpanded || isUnderlineActive || isChecklist) accent else tint,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -329,65 +352,65 @@ private fun ToolbarButtonContainer(
 }
 
 /**
- * Clean monochrome Pen / Drawing icon matching the stroke style and color of the rest of the toolbar.
+ * Standard symmetrical pencil/pen icon with a clean sharp triangular tip,
+ * barrel body, cap band, and rounded eraser.
  */
 @Composable
-private fun MagicPenIcon(tint: Color) {
-    Canvas(modifier = Modifier.size(22.dp)) {
+private fun PencilIcon(tint: Color) {
+    Canvas(modifier = Modifier.size(21.dp)) {
         val w = size.width
         val h = size.height
         val strokeWidth = 1.8.dp.toPx()
         val stroke = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
 
-        // Pen barrel (slanted rectangle)
-        val barrelPath = Path().apply {
-            moveTo(w * 0.32f, h * 0.74f)
-            lineTo(w * 0.72f, h * 0.22f)
-            lineTo(w * 0.84f, h * 0.34f)
-            lineTo(w * 0.44f, h * 0.86f)
-            close()
-        }
-        drawPath(barrelPath, color = tint, style = stroke)
+        // Mathematical 45-degree angle pencil geometry
+        // Point: (0.18, 0.82)
+        // Tip Base Left: (0.24, 0.64), Tip Base Right: (0.36, 0.76)
+        // Body Top Left: (0.64, 0.24), Body Top Right: (0.76, 0.36)
+        // Cap Top: (0.75, 0.15), (0.85, 0.25)
 
-        // Pen tip
+        // 1. Sharp Triangular Tip
         val tipPath = Path().apply {
-            moveTo(w * 0.32f, h * 0.74f)
-            lineTo(w * 0.20f, h * 0.90f)
-            lineTo(w * 0.44f, h * 0.86f)
+            moveTo(w * 0.16f, h * 0.84f) // Sharp point
+            lineTo(w * 0.23f, h * 0.63f) // Left shoulder
+            lineTo(w * 0.37f, h * 0.77f) // Right shoulder
+            close()
         }
         drawPath(tipPath, color = tint, style = stroke)
 
-        // Top eraser / cap divider line
-        val capLine = Path().apply {
-            moveTo(w * 0.62f, h * 0.35f)
-            lineTo(w * 0.74f, h * 0.47f)
+        // Small filled tip lead point
+        val leadPath = Path().apply {
+            moveTo(w * 0.16f, h * 0.84f)
+            lineTo(w * 0.20f, h * 0.73f)
+            lineTo(w * 0.27f, h * 0.80f)
+            close()
         }
-        drawPath(capLine, color = tint, style = stroke)
-    }
-}
+        drawPath(leadPath, color = tint)
 
-/**
- * Scribble / Line-slash icon matching the 2nd icon in the 1st screenshot.
- */
-@Composable
-private fun ScribbleIcon(tint: Color) {
-    Canvas(modifier = Modifier.size(20.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-        // Diagonal slash with little corner hooks
-        val path = Path().apply {
-            moveTo(w * 0.22f, h * 0.45f)
-            lineTo(w * 0.22f, h * 0.78f)
-            lineTo(w * 0.55f, h * 0.78f)
-            moveTo(w * 0.45f, h * 0.22f)
-            lineTo(w * 0.78f, h * 0.22f)
-            lineTo(w * 0.78f, h * 0.55f)
-            moveTo(w * 0.24f, h * 0.76f)
-            lineTo(w * 0.76f, h * 0.24f)
+        // 2. Main Barrel Body (connected to shoulders)
+        val bodyPath = Path().apply {
+            moveTo(w * 0.23f, h * 0.63f)
+            lineTo(w * 0.64f, h * 0.22f)
+            lineTo(w * 0.78f, h * 0.36f)
+            lineTo(w * 0.37f, h * 0.77f)
+            close()
         }
-        drawPath(path, color = tint, style = stroke)
+        drawPath(bodyPath, color = tint, style = stroke)
+
+        // 3. Eraser Cap & Divider Band
+        val capBand = Path().apply {
+            moveTo(w * 0.54f, h * 0.32f)
+            lineTo(w * 0.68f, h * 0.46f)
+        }
+        drawPath(capBand, color = tint, style = stroke)
+
+        val eraserCap = Path().apply {
+            moveTo(w * 0.64f, h * 0.22f)
+            lineTo(w * 0.72f, h * 0.14f)
+            lineTo(w * 0.86f, h * 0.28f)
+            lineTo(w * 0.78f, h * 0.36f)
+        }
+        drawPath(eraserCap, color = tint, style = stroke)
     }
 }
 
@@ -396,7 +419,7 @@ private fun ScribbleIcon(tint: Color) {
  */
 @Composable
 private fun ChecklistIcon(tint: Color) {
-    Canvas(modifier = Modifier.size(22.dp)) {
+    Canvas(modifier = Modifier.size(21.dp)) {
         val strokeWidth = 1.8.dp.toPx()
         drawCircle(color = tint, radius = size.minDimension / 2 - strokeWidth, style = Stroke(width = strokeWidth))
         val check = Path().apply {
