@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -399,140 +400,150 @@ fun NoteEditScreen(
             }
         } else 0.dp
 
-        val bodyFocusRequester = remember { FocusRequester() }
+        // Main content area with truly floating toolbar overlaid on top
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    if (!current.isChecklist) bodyFocusRequester.requestFocus()
-                }
         ) {
-            Column(
+            val bodyFocusRequester = remember { FocusRequester() }
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(bodyScrollState)
+                    .padding(horizontal = 16.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        if (!current.isChecklist) bodyFocusRequester.requestFocus()
+                    }
             ) {
-                Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    if (current.title.isEmpty()) {
-                        Text("Title", color = fgColor.copy(alpha = 0.32f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    }
-                    BasicTextField(
-                        value = current.title,
-                        onValueChange = { persist(current.copy(title = it)) },
-                        singleLine = true,
-                        textStyle = TextStyle(color = fgColor, fontSize = 22.sp, fontWeight = FontWeight.Bold),
-                        cursorBrush = SolidColor(fgColor),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                current.drawingPngBase64?.let { b64 ->
-                    val bmp = remember(b64) { decodeBase64ToBitmap(b64) }
-                    if (bmp != null) {
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = "Drawing",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(imageHeight)
-                                .padding(top = 12.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .clickable { onOpenDrawing(current.id) }
-                        )
-                    }
-                }
-
-                if (current.isChecklist) {
-                    ChecklistEditor(
-                        items = current.checklist,
-                        fgColor = fgColor,
-                        onChange = { persist(current.copy(checklist = it)) }
-                    )
-                } else {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        if (bodyField.text.isEmpty()) {
-                            Text("Note...", color = fgColor.copy(alpha = 0.28f), fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(bodyScrollState)
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        if (current.title.isEmpty()) {
+                            Text("Title", color = fgColor.copy(alpha = 0.32f), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         }
                         BasicTextField(
-                            value = bodyField,
-                            onValueChange = { updateBody(it) },
-                            visualTransformation = RunsVisualTransformation(current.styleRuns),
-                            textStyle = TextStyle(color = fgColor, fontSize = 16.sp, lineHeight = 25.sp),
+                            value = current.title,
+                            onValueChange = { persist(current.copy(title = it)) },
+                            singleLine = true,
+                            textStyle = TextStyle(color = fgColor, fontSize = 22.sp, fontWeight = FontWeight.Bold),
                             cursorBrush = SolidColor(fgColor),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = 200.dp)
-                                .padding(top = 8.dp, bottom = 24.dp)
-                                .focusRequester(bodyFocusRequester)
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
+
+                    current.drawingPngBase64?.let { b64 ->
+                        val bmp = remember(b64) { decodeBase64ToBitmap(b64) }
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "Drawing",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(imageHeight)
+                                    .padding(top = 12.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable { onOpenDrawing(current.id) }
+                            )
+                        }
+                    }
+
+                    if (current.isChecklist) {
+                        ChecklistEditor(
+                            items = current.checklist,
+                            fgColor = fgColor,
+                            onChange = { persist(current.copy(checklist = it)) }
+                        )
+                    } else {
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            if (bodyField.text.isEmpty()) {
+                                Text("Note...", color = fgColor.copy(alpha = 0.28f), fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+                            }
+                            BasicTextField(
+                                value = bodyField,
+                                onValueChange = { updateBody(it) },
+                                visualTransformation = RunsVisualTransformation(current.styleRuns),
+                                textStyle = TextStyle(color = fgColor, fontSize = 16.sp, lineHeight = 25.sp),
+                                cursorBrush = SolidColor(fgColor),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 200.dp)
+                                    .padding(top = 8.dp, bottom = 24.dp)
+                                    .focusRequester(bodyFocusRequester)
+                            )
+                        }
+                    }
+
+                    // Spacer at the bottom so the last item in a long list can scroll above the floating pill
+                    Spacer(modifier = Modifier.height(if (isImeOpen) 16.dp else 96.dp))
                 }
             }
-        }
 
-        RichTextToolbar(
-            showFormatting = !current.isChecklist,
-            isChecklist = current.isChecklist,
-            isBoldActive = activeBold,
-            isItalicActive = activeItalic,
-            isUnderlineActive = activeUnderline,
-            isKeyboardOpen = isImeOpen,
-            onToggleBold = {
-                activeBold = !activeBold
-                val mfx = mathEffect
-                if (mfx != null) {
-                    if (!mathPeekOn) {
-                        val values = MathEquationEngine.lineValues(bodyField.text)
-                        val total = MathEquationEngine.evaluate(mfx.mathEquation, values)
-                        if (total != null) {
-                            titleBeforeMathPeek = current.title
-                            mathPeekOn = true
-                            persist(current.copy(title = total.toString()))
+            RichTextToolbar(
+                showFormatting = !current.isChecklist,
+                isChecklist = current.isChecklist,
+                isBoldActive = activeBold,
+                isItalicActive = activeItalic,
+                isUnderlineActive = activeUnderline,
+                isKeyboardOpen = isImeOpen,
+                onToggleBold = {
+                    activeBold = !activeBold
+                    val mfx = mathEffect
+                    if (mfx != null) {
+                        if (!mathPeekOn) {
+                            val values = MathEquationEngine.lineValues(bodyField.text)
+                            val total = MathEquationEngine.evaluate(mfx.mathEquation, values)
+                            if (total != null) {
+                                titleBeforeMathPeek = current.title
+                                mathPeekOn = true
+                                persist(current.copy(title = total.toString()))
+                            }
+                        } else {
+                            mathPeekOn = false
+                            persist(current.copy(title = titleBeforeMathPeek ?: ""))
+                            titleBeforeMathPeek = null
                         }
-                    } else {
-                        mathPeekOn = false
-                        persist(current.copy(title = titleBeforeMathPeek ?: ""))
-                        titleBeforeMathPeek = null
                     }
-                }
-            },
-            onToggleItalic = { activeItalic = !activeItalic },
-            onLongPressItalic = {
-                if (covertConfig.enabled) {
-                    covertState.isArmed = !covertState.isArmed
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                }
-            },
-            onToggleUnderline = { activeUnderline = !activeUnderline },
-            onBulletLine = { updateBody(applyBulletLine(bodyField), applyActiveStyle = false) },
-            onNumberedLine = { updateBody(applyNumberedLine(bodyField), applyActiveStyle = false) },
-            onToggleChecklist = {
-                if (current.isChecklist) {
-                    persist(current.copy(checklist = emptyList()))
-                } else if (current.checklist.isEmpty()) {
-                    persist(current.copy(checklist = listOf(ChecklistItem())))
-                } else {
-                    persist(current.copy(checklist = current.checklist + ChecklistItem()))
-                }
-            },
-            onSketch = {
-                viewModel.save(current)
-                onOpenDrawing(current.id)
-            },
-            selectedColor = current.color,
-            onSelectColor = { c ->
-                persist(current.copy(color = c))
-            },
-            isDarkTheme = isDarkTheme,
-            tint = fgColor,
-            accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
-        )
+                },
+                onToggleItalic = { activeItalic = !activeItalic },
+                onLongPressItalic = {
+                    if (covertConfig.enabled) {
+                        covertState.isArmed = !covertState.isArmed
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                },
+                onToggleUnderline = { activeUnderline = !activeUnderline },
+                onBulletLine = { updateBody(applyBulletLine(bodyField), applyActiveStyle = false) },
+                onNumberedLine = { updateBody(applyNumberedLine(bodyField), applyActiveStyle = false) },
+                onToggleChecklist = {
+                    if (current.isChecklist) {
+                        persist(current.copy(checklist = emptyList()))
+                    } else if (current.checklist.isEmpty()) {
+                        persist(current.copy(checklist = listOf(ChecklistItem())))
+                    } else {
+                        persist(current.copy(checklist = current.checklist + ChecklistItem()))
+                    }
+                },
+                onSketch = {
+                    viewModel.save(current)
+                    onOpenDrawing(current.id)
+                },
+                selectedColor = current.color,
+                onSelectColor = { c ->
+                    persist(current.copy(color = c))
+                },
+                isDarkTheme = isDarkTheme,
+                tint = fgColor,
+                accent = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        }
     }
 }
 
