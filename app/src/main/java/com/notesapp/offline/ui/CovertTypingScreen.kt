@@ -204,9 +204,9 @@ fun CovertTypingScreen(
             }
 
             // Pre-saved Sentence Section
-            SectionLabel("1st Line: Pre-Saved Sentence", fgColor, topPadding = 24.dp)
+            SectionLabel("Covert Sentence Line", fgColor, topPadding = 24.dp)
             Text(
-                "When Covert Mode is active on line 1, every keyboard stroke outputs the next character from this sentence, while capturing what you actually type. Pressing Space twice (  ) finishes the secret word. When the sentence completes, a period (.) appears.",
+                "When Covert Mode is active, every keyboard stroke outputs the next character from this sentence, while capturing what you actually type. Any leading blank or whitespace-only lines are ignored. Pressing Space twice (  ) or Enter finishes the secret word. When the sentence completes, a period (.) appears.",
                 color = fgColor.copy(alpha = 0.45f),
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
@@ -424,6 +424,7 @@ fun CovertTypingScreen(
                                     sandboxSessionState.hasCapturedWord = false
                                     sandboxSessionState.covertSentenceIndex = 0
                                     sandboxSessionState.consecutiveSpaces = 0
+                                    sandboxSessionState.covertLineIndex = -1
                                     sandboxSessionState.isArmed = true
                                     capturedTestWord = ""
                                 }
