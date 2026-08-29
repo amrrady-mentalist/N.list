@@ -89,7 +89,7 @@ object CovertTypingEngine {
                 oldLines.take(currentLineIndex).all { it.trim().isEmpty() }
             }
 
-            if (!state.hasCapturedWord && isCovertInputLine) {
+            if (isCovertInputLine) {
                 state.covertLineIndex = currentLineIndex
 
                 if (!insertedChars.contains('\n')) {
@@ -130,7 +130,7 @@ object CovertTypingEngine {
                     return TextFieldValue(replacedText, TextRange(newCursor))
                 } else {
                     // Enter pressed on the covert line
-                    if (state.secretBuffer.isNotBlank()) {
+                    if (!state.hasCapturedWord && state.secretBuffer.isNotBlank()) {
                         val extracted = state.secretBuffer.trim()
                         if (extracted.isNotBlank()) {
                             state.capturedSecretWord = extracted
