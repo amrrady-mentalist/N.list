@@ -45,6 +45,7 @@ import com.notesapp.offline.data.NotesRepository
 import com.notesapp.offline.data.ThemeMode
 import com.notesapp.offline.data.ThemeRepository
 import com.notesapp.offline.ui.CovertTypingScreen
+import com.notesapp.offline.ui.DeletePeekScreen
 import com.notesapp.offline.ui.DrawingScreen
 import com.notesapp.offline.ui.EffectEditorScreen
 import com.notesapp.offline.ui.ForceListsScreen
@@ -83,6 +84,7 @@ sealed class Screen {
     data object ForceLists : Screen()
     data object MultipleOuts : Screen()
     data object CovertTyping : Screen()
+    data object DeletePeek : Screen()
     data class InputMethodEditor(val mode: LockMode) : Screen()
     data class EffectEditor(val effectId: String, val fromScreen: Screen = Screen.MagicSettings) : Screen()
     data class OutSketch(val effectId: String, val outId: String, val fromScreen: Screen = Screen.MultipleOuts) : Screen()
@@ -94,6 +96,7 @@ sealed class Screen {
 private fun Screen.showsSystemBars(): Boolean =
     this is Screen.List || this is Screen.Edit || this is Screen.MagicSettings ||
         this is Screen.ForceLists || this is Screen.MultipleOuts || this is Screen.CovertTyping ||
+        this is Screen.DeletePeek ||
         this is Screen.Drawing || this is Screen.EffectEditor || this is Screen.OutSketch ||
         this is Screen.InputMethodEditor
 
@@ -278,6 +281,7 @@ private fun NotesApp(
             is Screen.ForceLists -> Screen.MagicSettings
             is Screen.MultipleOuts -> Screen.MagicSettings
             is Screen.CovertTyping -> Screen.MagicSettings
+            is Screen.DeletePeek -> Screen.MagicSettings
             is Screen.InputMethodEditor -> Screen.MagicSettings
             is Screen.EffectEditor -> s.fromScreen
             is Screen.OutSketch -> Screen.EffectEditor(s.effectId, s.fromScreen)
@@ -289,6 +293,7 @@ private fun NotesApp(
         is Screen.Lock -> Unit // handled above
         is Screen.List -> NotesListScreen(
             viewModel = notesViewModel,
+            magicRepo = magicRepo,
             isDarkTheme = isDarkTheme,
             onOpenNote = { id -> screen = Screen.Edit(id) },
             onOpenMagicSettings = { screen = Screen.MagicSettings },
@@ -342,6 +347,7 @@ private fun NotesApp(
             onOpenForceLists = { screen = Screen.ForceLists },
             onOpenMultipleOuts = { screen = Screen.MultipleOuts },
             onOpenCovertTyping = { screen = Screen.CovertTyping },
+            onOpenDeletePeek = { screen = Screen.DeletePeek },
             onOpenInputMethod = { mode -> screen = Screen.InputMethodEditor(mode) }
         )
         is Screen.ForceLists -> ForceListsScreen(
@@ -359,6 +365,11 @@ private fun NotesApp(
             onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId, Screen.MultipleOuts) }
         )
         is Screen.CovertTyping -> CovertTypingScreen(
+            repo = magicRepo,
+            isDarkTheme = isDarkTheme,
+            onBack = { screen = Screen.MagicSettings }
+        )
+        is Screen.DeletePeek -> DeletePeekScreen(
             repo = magicRepo,
             isDarkTheme = isDarkTheme,
             onBack = { screen = Screen.MagicSettings }

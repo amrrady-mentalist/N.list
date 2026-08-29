@@ -114,6 +114,15 @@ data class CovertTypingConfig(
 )
 
 @Serializable
+data class DeletePeekConfig(
+    val enabled: Boolean = false,
+    val sendToInject: Boolean = true,
+    val localPushNotification: Boolean = true,
+    val triggerVolumeButton: Boolean = true,
+    val triggerProximity: Boolean = true
+)
+
+@Serializable
 enum class LockMode { CLASSIC, HOME_SCREEN }
 
 /**
@@ -153,7 +162,9 @@ data class MagicStore(
      *  proximity/volume send triggers no matter what the active effect is. */
     val injectModeOn: Boolean = false,
     /** Covert Typing effect configuration. */
-    val covertTyping: CovertTypingConfig = CovertTypingConfig()
+    val covertTyping: CovertTypingConfig = CovertTypingConfig(),
+    /** Delete Peek effect configuration. */
+    val deletePeek: DeletePeekConfig = DeletePeekConfig()
 ) {
     val activeEffect: MagicEffect? get() = effects.firstOrNull { it.id == activeEffectId }
 

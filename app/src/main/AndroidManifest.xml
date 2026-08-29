@@ -6,6 +6,7 @@
          fails with a SecurityException/UnknownHostException-style
          permission denial before ever reaching the network. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Needed on Android 11+ (API 30+) package visibility to actually see
          other installed apps' launcher entries/icons — without this,

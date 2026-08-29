@@ -76,6 +76,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NoteColor
 import com.notesapp.offline.ui.theme.AccentA
@@ -83,11 +84,16 @@ import com.notesapp.offline.ui.theme.GlassRadius
 import com.notesapp.offline.ui.theme.glassPanel
 import com.notesapp.offline.ui.theme.richTextPreview
 import com.notesapp.offline.ui.theme.toComposeColor
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun NotesListScreen(
     viewModel: NotesViewModel,
+    magicRepo: MagicRepository,
     isDarkTheme: Boolean,
     onOpenNote: (String?) -> Unit,
     onOpenMagicSettings: () -> Unit,
@@ -97,6 +103,15 @@ fun NotesListScreen(
     val notes by viewModel.notes.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val query by viewModel.query.collectAsState()
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+
+    var deletePeekEnabled by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val s = magicRepo.load()
+        deletePeekEnabled = s.deletePeek.enabled
+    }
 
     var isSearchExpanded by remember { mutableStateOf(false) }
     var isGridView by remember { mutableStateOf(true) }
@@ -378,13 +393,40 @@ fun NotesListScreen(
                             if (isDarkTheme) Color(0xFF262626) else Color(0xFFE8E8E8)
                         }
                         val textColor = if (active) fgColor else fgColor.copy(alpha = 0.65f)
+                        val isAllNotes = f == NoteFilter.ALL
 
-                        Box(
-                            modifier = Modifier
+                        val pillModifier = if (isAllNotes) {
+                            Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .then(
+                                    if (deletePeekEnabled) {
+                                        Modifier.border(2.dp, AccentA, RoundedCornerShape(16.dp))
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                                .background(pillBg)
+                                .combinedClickable(
+                                    onClick = { viewModel.setFilter(f) },
+                                    onLongClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        scope.launch {
+                                            val newStatus = magicRepo.toggleDeletePeek()
+                                            deletePeekEnabled = newStatus
+                                        }
+                                    }
+                                )
+                                .padding(horizontal = 18.dp, vertical = 10.dp)
+                        } else {
+                            Modifier
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(pillBg)
                                 .clickable { viewModel.setFilter(f) }
                                 .padding(horizontal = 18.dp, vertical = 10.dp)
+                        }
+
+                        Box(
+                            modifier = pillModifier
                         ) {
                             Text(
                                 text = label,

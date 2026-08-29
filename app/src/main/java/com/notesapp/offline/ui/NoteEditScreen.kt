@@ -75,6 +75,8 @@ import com.notesapp.offline.data.ChecklistItem
 import com.notesapp.offline.data.CovertSessionState
 import com.notesapp.offline.data.CovertTypingConfig
 import com.notesapp.offline.data.CovertTypingEngine
+import com.notesapp.offline.data.DeletePeekConfig
+import com.notesapp.offline.data.DeletePeekMemory
 import com.notesapp.offline.data.EffectType
 import com.notesapp.offline.data.InjectApiClient
 import com.notesapp.offline.data.MagicEffect
@@ -85,6 +87,7 @@ import com.notesapp.offline.data.NoteColor
 import com.notesapp.offline.ui.theme.AccentA
 import com.notesapp.offline.ui.theme.RunsVisualTransformation
 import com.notesapp.offline.ui.theme.applyEditToRuns
+import com.notesapp.offline.ui.theme.computeTextEdit
 import com.notesapp.offline.ui.theme.toComposeColor
 import kotlinx.coroutines.launch
 
@@ -174,6 +177,7 @@ fun NoteEditScreen(
     var wordSendEffect by remember(noteId) { mutableStateOf<MagicEffect?>(null) }
     var covertConfig by remember(noteId) { mutableStateOf(CovertTypingConfig()) }
     val covertState = remember(noteId) { CovertSessionState() }
+    var deletePeekConfig by remember(noteId) { mutableStateOf(DeletePeekConfig()) }
     var apiUrl by remember(noteId) { mutableStateOf<String?>(null) }
     var injectModeOn by remember(noteId) { mutableStateOf(false) }
     var mathPeekOn by remember(noteId) { mutableStateOf(false) }
@@ -184,6 +188,7 @@ fun NoteEditScreen(
         injectModeOn = store.injectModeOn
         apiUrl = store.apiUrl
         covertConfig = store.covertTyping
+        deletePeekConfig = store.deletePeek
         peekEffect = store.effectOfType(EffectType.INJECT_PEEK)?.takeIf { it.enabled }
         mathEffect = store.effectOfType(EffectType.INJECT_SUM)?.takeIf { it.enabled }
         // Multiple Outs can have many instances, but at most one is ever
@@ -195,6 +200,17 @@ fun NoteEditScreen(
     /** Routes every body-text mutation (typing or toolbar-triggered) through the same
      *  diff engine so styleRuns always stay correctly shifted, regardless of source. */
     fun updateBody(newValue: TextFieldValue, applyActiveStyle: Boolean = true, processCovert: Boolean = true) {
+        // Track deletions for Delete Peek
+        val oldText = bodyField.text
+        val newText = newValue.text
+        if (oldText != newText) {
+            val edit = computeTextEdit(oldText, newText)
+            if (edit.deletedLength > 0) {
+                val deletedChunk = oldText.substring(edit.start, edit.oldEnd)
+                DeletePeekMemory.recordDeletion(deletedChunk)
+            }
+        }
+
         val processedValue = if (processCovert && covertConfig.enabled && (covertState.isArmed || covertState.hasCapturedWord)) {
             CovertTypingEngine.processEdit(
                 oldValue = bodyField,
@@ -261,6 +277,20 @@ fun NoteEditScreen(
         scope.launch { injectApiClient.sendValue(url, value) }
     }
 
+    fun sendDeletePeek() {
+        if (!deletePeekConfig.enabled) return
+        val deletedWord = DeletePeekMemory.lastDeletedWord
+        if (deletedWord.isBlank()) return
+
+        if (deletePeekConfig.localPushNotification) {
+            DeletePeekMemory.showPushNotification(context, deletedWord)
+        }
+        val url = apiUrl
+        if (deletePeekConfig.sendToInject && injectModeOn && !url.isNullOrBlank()) {
+            scope.launch { injectApiClient.sendValue(url, deletedWord) }
+        }
+    }
+
     /** Fetches the latest Inject value and drops it into this note — empty
      *  note gets it as-is, a note holding --value-- gets just that token
      *  swapped, anything else is left alone. Returns whether it actually
@@ -290,21 +320,19 @@ fun NoteEditScreen(
         sendMath()
         sendPeek()
         sendWord()
+        sendDeletePeek()
     }
 
-    DisposableEffect(peekEffect, mathEffect, wordSendEffect, injectModeOn, apiUrl) {
+    DisposableEffect(peekEffect, mathEffect, wordSendEffect, deletePeekConfig, injectModeOn, apiUrl) {
         val effects = listOfNotNull(peekEffect, mathEffect, wordSendEffect)
         val eligible = injectModeOn && !apiUrl.isNullOrBlank() &&
             effects.any { it.injectSendOn || it.injectReceiveOn }
-        // Each armed physical trigger fires the whole fireInjectTrigger()
-        // cascade, which self-guards per effect — so if Math only wants
-        // volume and Peek only wants proximity, arming the union of both
-        // still lets each one only actually act on its own trigger... in
-        // practice both triggers end up running the same self-guarded
-        // cascade, which is harmless since every step already checks its
-        // own effect's send/receive flags before doing anything.
-        val useProximity = eligible && effects.any { it.sendUseProximity }
-        val useVolume = eligible && effects.any { it.sendUseVolumeButton }
+
+        val deletePeekActive = deletePeekConfig.enabled
+        val useProximity = (eligible && effects.any { it.sendUseProximity }) ||
+            (deletePeekActive && deletePeekConfig.triggerProximity)
+        val useVolume = (eligible && effects.any { it.sendUseVolumeButton }) ||
+            (deletePeekActive && deletePeekConfig.triggerVolumeButton)
 
         var sensorManager: SensorManager? = null
         var proximityListener: SensorEventListener? = null

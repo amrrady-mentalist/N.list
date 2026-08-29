@@ -101,6 +101,7 @@ fun MagicSettingsScreen(
     onOpenForceLists: () -> Unit,
     onOpenMultipleOuts: () -> Unit,
     onOpenCovertTyping: () -> Unit,
+    onOpenDeletePeek: () -> Unit,
     onOpenInputMethod: (LockMode) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -458,6 +459,20 @@ fun MagicSettingsScreen(
                     activeName = if (isCovertActive) "Hold Italic (I) to Arm" else null,
                     fgColor = fgColor,
                     onClick = onOpenCovertTyping,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                )
+            }
+
+            // Delete Peek Navigation Card
+            item {
+                val isDeletePeekActive = store.deletePeek.enabled
+                SettingsNavigationCard(
+                    title = "Delete Peek",
+                    subtitle = "Captures deleted words and transmits them via API or local notification",
+                    countText = if (isDeletePeekActive) "Enabled" else "Disabled",
+                    activeName = if (isDeletePeekActive) "Hold 'All notes' to Toggle" else null,
+                    fgColor = fgColor,
+                    onClick = onOpenDeletePeek,
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                 )
             }

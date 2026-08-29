@@ -198,5 +198,21 @@ class MagicRepository(context: Context) {
             saveLocked(store.copy(covertTyping = config))
         }
     }
+
+    suspend fun updateDeletePeek(config: DeletePeekConfig) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val store = loadLocked().withFixedEffects()
+            saveLocked(store.copy(deletePeek = config))
+        }
+    }
+
+    suspend fun toggleDeletePeek(): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val store = loadLocked().withFixedEffects()
+            val newEnabled = !store.deletePeek.enabled
+            saveLocked(store.copy(deletePeek = store.deletePeek.copy(enabled = newEnabled)))
+            newEnabled
+        }
+    }
 }
 
