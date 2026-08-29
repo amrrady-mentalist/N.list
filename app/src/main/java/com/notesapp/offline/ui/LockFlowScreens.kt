@@ -247,6 +247,7 @@ private fun AmbientScreen(backgroundPath: String?, onSwipeUp: () -> Unit) {
                     translationY = offsetY.value
                     alpha = 1f - progress * 0.9f
                 }
+                .clip(RoundedCornerShape(44.dp))
         ) {
             LockBackground(
                 path = backgroundPath,
