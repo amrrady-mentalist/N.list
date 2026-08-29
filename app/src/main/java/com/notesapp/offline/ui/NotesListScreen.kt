@@ -76,6 +76,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import com.notesapp.offline.data.DeletePeekMemory
+import com.notesapp.offline.data.InjectApiClient
+import com.notesapp.offline.data.MagicStore
 import com.notesapp.offline.data.MagicRepository
 import com.notesapp.offline.data.Note
 import com.notesapp.offline.data.NoteColor
@@ -107,10 +117,68 @@ fun NotesListScreen(
     val haptic = LocalHapticFeedback.current
 
     var deletePeekEnabled by remember { mutableStateOf(false) }
+    var magicStore by remember { mutableStateOf(MagicStore()) }
+    val context = LocalContext.current
+    val injectApiClient = remember { InjectApiClient() }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(deletePeekEnabled) {
         val s = magicRepo.load()
+        magicStore = s
         deletePeekEnabled = s.deletePeek.enabled
+    }
+
+    fun fireDeletePeekTrigger() {
+        if (!deletePeekEnabled) return
+        val deletedWord = DeletePeekMemory.lastDeletedWord
+        if (deletedWord.isBlank()) return
+        val config = magicStore.deletePeek
+        if (config.localPushNotification) {
+            DeletePeekMemory.showPushNotification(context, deletedWord)
+        }
+        val url = magicStore.apiUrl
+        if (config.sendToInject && magicStore.injectModeOn && !url.isNullOrBlank()) {
+            scope.launch { injectApiClient.sendValue(url, deletedWord) }
+        }
+    }
+
+    DisposableEffect(deletePeekEnabled, magicStore) {
+        val config = magicStore.deletePeek
+        var sensorManager: SensorManager? = null
+        var proximityListener: SensorEventListener? = null
+
+        if (deletePeekEnabled && config.triggerProximity) {
+            val sm = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            val sensor = sm?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+            if (sm != null && sensor != null) {
+                sensorManager = sm
+                var wasNear = false
+                val listener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent?) {
+                        if (event == null) return
+                        val distance = event.values.firstOrNull() ?: return
+                        val isNear = distance < sensor.maximumRange
+                        if (isNear && !wasNear) {
+                            fireDeletePeekTrigger()
+                        }
+                        wasNear = isNear
+                    }
+                    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+                }
+                proximityListener = listener
+                sm.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
+            }
+        }
+
+        if (deletePeekEnabled && config.triggerVolumeButton) {
+            VolumeTriggerBus.arm { fireDeletePeekTrigger() }
+        } else {
+            VolumeTriggerBus.disarm()
+        }
+
+        onDispose {
+            proximityListener?.let { sensorManager?.unregisterListener(it) }
+            VolumeTriggerBus.disarm()
+        }
     }
 
     var isSearchExpanded by remember { mutableStateOf(false) }

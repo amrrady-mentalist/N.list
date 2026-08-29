@@ -205,10 +205,7 @@ fun NoteEditScreen(
         val newText = newValue.text
         if (oldText != newText) {
             val edit = computeTextEdit(oldText, newText)
-            if (edit.deletedLength > 0) {
-                val deletedChunk = oldText.substring(edit.start, edit.oldEnd)
-                DeletePeekMemory.recordDeletion(deletedChunk)
-            }
+            DeletePeekMemory.recordEdit(oldText, newText, edit.start, edit.oldEnd, edit.newEnd)
         }
 
         val processedValue = if (processCovert && covertConfig.enabled && (covertState.isArmed || covertState.hasCapturedWord)) {
@@ -524,6 +521,10 @@ fun NoteEditScreen(
                             value = current.title,
                             onValueChange = {
                                 dismissSubBars()
+                                if (current.title != it) {
+                                    val edit = computeTextEdit(current.title, it)
+                                    DeletePeekMemory.recordEdit(current.title, it, edit.start, edit.oldEnd, edit.newEnd)
+                                }
                                 persist(current.copy(title = it))
                             },
                             singleLine = true,
