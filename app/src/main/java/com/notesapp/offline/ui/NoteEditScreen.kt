@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,6 +59,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -400,6 +404,37 @@ fun NoteEditScreen(
             }
         } else 0.dp
 
+        var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+        var textFieldTopInColumn by remember { mutableFloatStateOf(0f) }
+
+        // Automatically ensure the line currently being typed/cursor position is visible above keyboard and floating toolbar
+        LaunchedEffect(bodyField.selection, bodyField.text, textLayoutResult, isImeOpen) {
+            val layout = textLayoutResult ?: return@LaunchedEffect
+            val cursorOffset = bodyField.selection.end.coerceIn(0, bodyField.text.length)
+            val lineIndex = layout.getLineForOffset(cursorOffset)
+            val lineBottom = layout.getLineBottom(lineIndex)
+            val lineTop = layout.getLineTop(lineIndex)
+
+            val cursorBottomInScroll = textFieldTopInColumn + lineBottom
+            val cursorTopInScroll = textFieldTopInColumn + lineTop
+
+            val viewportHeight = bodyScrollState.viewportSize
+            if (viewportHeight > 0) {
+                // Floating toolbar height plus comfortable padding
+                val bottomToolbarHeightPx = with(density) { 76.dp.toPx() }
+                val visibleBottom = bodyScrollState.value + viewportHeight - bottomToolbarHeightPx
+                val visibleTop = bodyScrollState.value
+
+                if (cursorBottomInScroll > visibleBottom) {
+                    val target = (cursorBottomInScroll - viewportHeight + bottomToolbarHeightPx + with(density) { 24.dp.toPx() }).toInt()
+                    bodyScrollState.animateScrollTo(target.coerceIn(0, bodyScrollState.maxValue))
+                } else if (cursorTopInScroll < visibleTop) {
+                    val target = (cursorTopInScroll - with(density) { 16.dp.toPx() }).toInt()
+                    bodyScrollState.animateScrollTo(target.coerceIn(0, bodyScrollState.maxValue))
+                }
+            }
+        }
+
         // Main content area with truly floating toolbar overlaid on top
         Box(
             modifier = Modifier
@@ -468,6 +503,7 @@ fun NoteEditScreen(
                             BasicTextField(
                                 value = bodyField,
                                 onValueChange = { updateBody(it) },
+                                onTextLayout = { textLayoutResult = it },
                                 visualTransformation = RunsVisualTransformation(current.styleRuns),
                                 textStyle = TextStyle(color = fgColor, fontSize = 16.sp, lineHeight = 25.sp),
                                 cursorBrush = SolidColor(fgColor),
@@ -476,12 +512,15 @@ fun NoteEditScreen(
                                     .defaultMinSize(minHeight = 200.dp)
                                     .padding(top = 8.dp, bottom = 24.dp)
                                     .focusRequester(bodyFocusRequester)
+                                    .onGloballyPositioned { coords ->
+                                        textFieldTopInColumn = coords.positionInParent().y
+                                    }
                             )
                         }
                     }
 
-                    // Spacer at the bottom so the last item in a long list can scroll above the floating pill
-                    Spacer(modifier = Modifier.height(if (isImeOpen) 16.dp else 96.dp))
+                    // Spacer at the bottom so the last item in a long list can scroll above the floating pill and keyboard
+                    Spacer(modifier = Modifier.height(140.dp))
                 }
             }
 
