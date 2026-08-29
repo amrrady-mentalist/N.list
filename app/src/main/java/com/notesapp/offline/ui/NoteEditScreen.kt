@@ -122,6 +122,13 @@ fun NoteEditScreen(
     var activeBold by remember(noteId) { mutableStateOf(false) }
     var activeItalic by remember(noteId) { mutableStateOf(false) }
     var activeUnderline by remember(noteId) { mutableStateOf(false) }
+    var isAaExpanded by remember { mutableStateOf(false) }
+    var isPlusExpanded by remember { mutableStateOf(false) }
+
+    fun dismissSubBars() {
+        isAaExpanded = false
+        isPlusExpanded = false
+    }
 
     val bgColor = if (isDarkTheme) Color.Black else Color.White
     val fgColor = if (isDarkTheme) Color.White else Color.Black
@@ -345,7 +352,13 @@ fun NoteEditScreen(
     ) {
         // Intercepts the system back gesture too, not just the on-screen
         // arrow, so an emptied-out note gets cleaned up either way.
-        BackHandler(onBack = { handleBack() })
+        BackHandler(onBack = {
+            if (isAaExpanded || isPlusExpanded) {
+                dismissSubBars()
+            } else {
+                handleBack()
+            }
+        })
 
         // Minimal top row — no AppBar chrome, just icons on the solid background.
         Row(
@@ -404,6 +417,15 @@ fun NoteEditScreen(
             }
         } else 0.dp
 
+        var isAaExpanded by remember { mutableStateOf(false) }
+        var isPlusExpanded by remember { mutableStateOf(false) }
+        val dismissSubBars = {
+            if (isAaExpanded || isPlusExpanded) {
+                isAaExpanded = false
+                isPlusExpanded = false
+            }
+        }
+
         var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
         var textFieldTopInColumn by remember { mutableFloatStateOf(0f) }
 
@@ -450,6 +472,7 @@ fun NoteEditScreen(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) {
+                        dismissSubBars()
                         if (!current.isChecklist) bodyFocusRequester.requestFocus()
                     }
             ) {
@@ -457,6 +480,13 @@ fun NoteEditScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(bodyScrollState)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            dismissSubBars()
+                            if (!current.isChecklist) bodyFocusRequester.requestFocus()
+                        }
                 ) {
                     Box(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                         if (current.title.isEmpty()) {
@@ -464,7 +494,10 @@ fun NoteEditScreen(
                         }
                         BasicTextField(
                             value = current.title,
-                            onValueChange = { persist(current.copy(title = it)) },
+                            onValueChange = {
+                                dismissSubBars()
+                                persist(current.copy(title = it))
+                            },
                             singleLine = true,
                             textStyle = TextStyle(color = fgColor, fontSize = 22.sp, fontWeight = FontWeight.Bold),
                             cursorBrush = SolidColor(fgColor),
@@ -484,7 +517,10 @@ fun NoteEditScreen(
                                     .height(imageHeight)
                                     .padding(top = 12.dp)
                                     .clip(RoundedCornerShape(16.dp))
-                                    .clickable { onOpenDrawing(current.id) }
+                                    .clickable {
+                                        dismissSubBars()
+                                        onOpenDrawing(current.id)
+                                    }
                             )
                         }
                     }
@@ -493,7 +529,10 @@ fun NoteEditScreen(
                         ChecklistEditor(
                             items = current.checklist,
                             fgColor = fgColor,
-                            onChange = { persist(current.copy(checklist = it)) }
+                            onChange = {
+                                dismissSubBars()
+                                persist(current.copy(checklist = it))
+                            }
                         )
                     } else {
                         Box(modifier = Modifier.fillMaxWidth()) {
@@ -502,7 +541,10 @@ fun NoteEditScreen(
                             }
                             BasicTextField(
                                 value = bodyField,
-                                onValueChange = { updateBody(it) },
+                                onValueChange = {
+                                    dismissSubBars()
+                                    updateBody(it)
+                                },
                                 onTextLayout = { textLayoutResult = it },
                                 visualTransformation = RunsVisualTransformation(current.styleRuns),
                                 textStyle = TextStyle(color = fgColor, fontSize = 16.sp, lineHeight = 25.sp),
@@ -580,6 +622,16 @@ fun NoteEditScreen(
                 isDarkTheme = isDarkTheme,
                 tint = fgColor,
                 accent = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                isAaExpanded = isAaExpanded,
+                onToggleAa = {
+                    isAaExpanded = !isAaExpanded
+                    if (isAaExpanded) isPlusExpanded = false
+                },
+                isPlusExpanded = isPlusExpanded,
+                onTogglePlus = {
+                    isPlusExpanded = !isPlusExpanded
+                    if (isPlusExpanded) isAaExpanded = false
+                },
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }

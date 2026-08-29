@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +26,9 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -131,11 +135,12 @@ fun RichTextToolbar(
     onLongPressItalic: (() -> Unit)? = null,
     isDarkTheme: Boolean = true,
     tint: Color = Color.White,
-    accent: Color = Color(0xFFEEA000)
+    accent: Color = Color(0xFFEEA000),
+    isAaExpanded: Boolean = false,
+    onToggleAa: () -> Unit = {},
+    isPlusExpanded: Boolean = false,
+    onTogglePlus: () -> Unit = {}
 ) {
-    var isAaExpanded by remember { mutableStateOf(false) }
-    var isPlusExpanded by remember { mutableStateOf(false) }
-
     val barBg = if (isDarkTheme) Color(0xFF1E1E22) else Color(0xFFE8E8EC)
     val subPanelBg = if (isDarkTheme) Color(0xFF26262B) else Color(0xFFDADAE0)
     val pillBg = if (isDarkTheme) Color(0xFF2A2A30) else Color(0xFFD4D4DC)
@@ -238,7 +243,8 @@ fun RichTextToolbar(
             // Floating pill capsule matching second screenshot
             Box(
                 modifier = Modifier
-                    .padding(bottom = 12.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 14.dp)
                     .clip(RoundedCornerShape(26.dp))
                     .background(pillBg)
                     .padding(horizontal = 16.dp, vertical = 6.dp),
@@ -275,7 +281,7 @@ fun RichTextToolbar(
                     }
 
                     // Plus / Add extras
-                    ToolbarButtonContainer(onClick = { isPlusExpanded = !isPlusExpanded }) {
+                    ToolbarButtonContainer(onClick = onTogglePlus) {
                         PlusCircleIcon(tint = if (isPlusExpanded) accent else tint)
                     }
                 }
@@ -317,10 +323,7 @@ fun RichTextToolbar(
                 }
 
                 // 4. Aa (Formatting expansion: Underline, Checklist, Bullets, Numbers)
-                ToolbarButtonContainer(onClick = {
-                    isAaExpanded = !isAaExpanded
-                    if (isAaExpanded) isPlusExpanded = false
-                }) {
+                ToolbarButtonContainer(onClick = onToggleAa) {
                     Text(
                         text = "Aa",
                         color = if (isAaExpanded || isUnderlineActive || isChecklist) accent else tint,
@@ -330,10 +333,7 @@ fun RichTextToolbar(
                 }
 
                 // 5. (+) Plus circle (Color picker & extras)
-                ToolbarButtonContainer(onClick = {
-                    isPlusExpanded = !isPlusExpanded
-                    if (isPlusExpanded) isAaExpanded = false
-                }) {
+                ToolbarButtonContainer(onClick = onTogglePlus) {
                     PlusCircleIcon(tint = if (isPlusExpanded) accent else tint)
                 }
             }
@@ -366,66 +366,16 @@ private fun ToolbarButtonContainer(
 }
 
 /**
- * Standard symmetrical pencil/pen icon with a clean sharp triangular tip,
- * barrel body, cap band, and rounded eraser.
+ * Standard Material Design pen/edit icon.
  */
 @Composable
 private fun PencilIcon(tint: Color) {
-    Canvas(modifier = Modifier.size(21.dp)) {
-        val w = size.width
-        val h = size.height
-        val strokeWidth = 1.8.dp.toPx()
-        val stroke = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-        // Mathematical 45-degree angle pencil geometry
-        // Point: (0.18, 0.82)
-        // Tip Base Left: (0.24, 0.64), Tip Base Right: (0.36, 0.76)
-        // Body Top Left: (0.64, 0.24), Body Top Right: (0.76, 0.36)
-        // Cap Top: (0.75, 0.15), (0.85, 0.25)
-
-        // 1. Sharp Triangular Tip
-        val tipPath = Path().apply {
-            moveTo(w * 0.16f, h * 0.84f) // Sharp point
-            lineTo(w * 0.23f, h * 0.63f) // Left shoulder
-            lineTo(w * 0.37f, h * 0.77f) // Right shoulder
-            close()
-        }
-        drawPath(tipPath, color = tint, style = stroke)
-
-        // Small filled tip lead point
-        val leadPath = Path().apply {
-            moveTo(w * 0.16f, h * 0.84f)
-            lineTo(w * 0.20f, h * 0.73f)
-            lineTo(w * 0.27f, h * 0.80f)
-            close()
-        }
-        drawPath(leadPath, color = tint)
-
-        // 2. Main Barrel Body (connected to shoulders)
-        val bodyPath = Path().apply {
-            moveTo(w * 0.23f, h * 0.63f)
-            lineTo(w * 0.64f, h * 0.22f)
-            lineTo(w * 0.78f, h * 0.36f)
-            lineTo(w * 0.37f, h * 0.77f)
-            close()
-        }
-        drawPath(bodyPath, color = tint, style = stroke)
-
-        // 3. Eraser Cap & Divider Band
-        val capBand = Path().apply {
-            moveTo(w * 0.54f, h * 0.32f)
-            lineTo(w * 0.68f, h * 0.46f)
-        }
-        drawPath(capBand, color = tint, style = stroke)
-
-        val eraserCap = Path().apply {
-            moveTo(w * 0.64f, h * 0.22f)
-            lineTo(w * 0.72f, h * 0.14f)
-            lineTo(w * 0.86f, h * 0.28f)
-            lineTo(w * 0.78f, h * 0.36f)
-        }
-        drawPath(eraserCap, color = tint, style = stroke)
-    }
+    Icon(
+        imageVector = Icons.Outlined.Edit,
+        contentDescription = "Drawing",
+        tint = tint,
+        modifier = Modifier.size(22.dp)
+    )
 }
 
 /**

@@ -90,14 +90,52 @@ class NotesViewModel(private val repo: NotesRepository) : ViewModel() {
         viewModelScope.launch { repo.delete(noteId) }
     }
 
+    fun deleteMany(noteIds: Set<String>) {
+        if (noteIds.isEmpty()) return
+        _allNotes.value = _allNotes.value.filterNot { it.id in noteIds }
+        viewModelScope.launch {
+            noteIds.forEach { repo.delete(it) }
+        }
+    }
+
     fun togglePin(noteId: String) {
         val note = getNote(noteId) ?: return
         save(note.copy(pinned = !note.pinned))
     }
 
+    fun togglePinMany(noteIds: Set<String>) {
+        if (noteIds.isEmpty()) return
+        val targetNotes = _allNotes.value.filter { it.id in noteIds }
+        val allPinned = targetNotes.all { it.pinned }
+        val newPinned = !allPinned
+        val now = System.currentTimeMillis()
+        val updated = _allNotes.value.map { n ->
+            if (n.id in noteIds) n.copy(pinned = newPinned, updatedAt = now) else n
+        }
+        _allNotes.value = updated
+        viewModelScope.launch {
+            updated.filter { it.id in noteIds }.forEach { repo.upsert(it) }
+        }
+    }
+
     fun toggleArchive(noteId: String) {
         val note = getNote(noteId) ?: return
         save(note.copy(archived = !note.archived))
+    }
+
+    fun toggleArchiveMany(noteIds: Set<String>) {
+        if (noteIds.isEmpty()) return
+        val targetNotes = _allNotes.value.filter { it.id in noteIds }
+        val allArchived = targetNotes.all { it.archived }
+        val newArchived = !allArchived
+        val now = System.currentTimeMillis()
+        val updated = _allNotes.value.map { n ->
+            if (n.id in noteIds) n.copy(archived = newArchived, updatedAt = now) else n
+        }
+        _allNotes.value = updated
+        viewModelScope.launch {
+            updated.filter { it.id in noteIds }.forEach { repo.upsert(it) }
+        }
     }
 
     fun setColor(noteId: String, color: NoteColor) {
