@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -146,27 +147,33 @@ fun RichTextToolbar(
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut()
         ) {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 6.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(subPanelBg)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(bottom = 6.dp),
+                contentAlignment = Alignment.Center
             ) {
-                ToolbarButtonContainer(onClick = onToggleUnderline) {
-                    Text("U", color = if (isUnderlineActive) accent else tint, fontSize = 17.sp, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline)
-                }
-                ToolbarButtonContainer(onClick = onToggleChecklist) {
-                    ChecklistIcon(tint = if (isChecklist) accent else tint)
-                }
-                ToolbarButtonContainer(onClick = onBulletLine) {
-                    Text("•", color = tint, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                }
-                ToolbarButtonContainer(onClick = onNumberedLine) {
-                    Text("1.", color = tint, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier
+                        .wrapContentWidth()
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(subPanelBg)
+                        .padding(horizontal = 10.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ToolbarButtonContainer(onClick = onToggleUnderline) {
+                        Text("U", color = if (isUnderlineActive) accent else tint, fontSize = 17.sp, fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline)
+                    }
+                    ToolbarButtonContainer(onClick = onToggleChecklist) {
+                        ChecklistIcon(tint = if (isChecklist) accent else tint)
+                    }
+                    ToolbarButtonContainer(onClick = onBulletLine) {
+                        Text("•", color = tint, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    }
+                    ToolbarButtonContainer(onClick = onNumberedLine) {
+                        Text("1.", color = tint, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -177,42 +184,49 @@ fun RichTextToolbar(
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut()
         ) {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 6.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(subPanelBg)
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(bottom = 6.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Text("Color:", color = tint.copy(alpha = 0.7f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                NoteColor.entries.forEach { c ->
-                    val isSelected = c == selectedColor
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(if (c == NoteColor.NONE) tint.copy(alpha = 0.2f) else c.toComposeColor())
-                            .then(
-                                if (isSelected) Modifier.background(Color.Transparent).then(
-                                    Modifier.padding(2.dp).clip(CircleShape)
-                                ) else Modifier
-                            )
-                            .clickable {
-                                onSelectColor(c)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSelected) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(if (c == NoteColor.NONE) tint else Color.White)
-                            )
+                Row(
+                    modifier = Modifier
+                        .wrapContentWidth()
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(subPanelBg)
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Color:", color = tint.copy(alpha = 0.7f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    NoteColor.entries.forEach { c ->
+                        val isSelected = c == selectedColor
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(if (c == NoteColor.NONE) tint.copy(alpha = 0.2f) else c.toComposeColor())
+                                .then(
+                                    if (isSelected) Modifier.background(Color.Transparent).then(
+                                        Modifier.padding(2.dp).clip(CircleShape)
+                                    ) else Modifier
+                                )
+                                .clickable {
+                                    onSelectColor(c)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(if (c == NoteColor.NONE) tint else Color.White)
+                                )
+                            }
                         }
                     }
                 }
