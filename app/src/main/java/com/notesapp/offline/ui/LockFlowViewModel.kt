@@ -53,6 +53,13 @@ class LockFlowViewModel(
      *  of just hard-cutting to the note list the instant the digit lands. */
     val unlocking: StateFlow<Boolean> = _unlocking.asStateFlow()
 
+    /**
+     * Synchronous callback invoked the instant an effect resolves a note,
+     * ensuring the note is pushed directly into NotesViewModel's memory cache
+     * before the screen transitions or renders.
+     */
+    var onNoteResolved: ((Note) -> Unit)? = null
+
     private val _lockBackgroundPath = MutableStateFlow<String?>(null)
     /** Path to the classic-lock background photo, if one's set in Magic
      *  Settings — read fresh every time the flow (re)starts via reset(). */
@@ -316,14 +323,16 @@ class LockFlowViewModel(
 
                 val allNotes = notesRepo.loadAll()
                 val existing = fx.linkedNoteId?.let { id -> allNotes.firstOrNull { it.id == id } }
+                    ?: allNotes.firstOrNull { it.magicEffectId == fx.id }
 
                 // A numbered plain-text list ("1 - Item"), matching
                 // the web app's <ol><li> rendering — not an actual
                 // checkbox checklist, which reads as a to-do list
                 // rather than a forced sequence of items.
                 val numbered = forced.mapIndexed { i, item -> "${i + 1} - $item" }.joinToString("\n")
+                val noteTitle = if (fx.title.isNotBlank()) injectValue(fx.title) else (existing?.title?.ifBlank { "Force List" } ?: "Force List")
                 val note = (existing ?: Note(magicEffectId = fx.id)).copy(
-                    title = injectValue(fx.title),
+                    title = noteTitle,
                     body = numbered,
                     checklist = emptyList(),
                     pinned = true,
@@ -331,11 +340,14 @@ class LockFlowViewModel(
                     updatedAt = System.currentTimeMillis()
                 )
                 notesRepo.upsert(note)
-                if (existing == null) {
+                if (existing == null || fx.linkedNoteId != note.id) {
                     magicRepo.updateEffect(fx.copy(linkedNoteId = note.id))
                 }
                 _resolvedNote.value = note
-                _resolvedNoteId.value = note.id
+                // Force List resolves in-place on the notes home screen (Screen.List).
+                // Do NOT set _resolvedNoteId for LIST so it does not navigate away to Screen.Edit.
+                _resolvedNoteId.value = null
+                onNoteResolved?.invoke(note)
             }
             EffectType.WORD -> {
                 val target = lastDigits.toIntOrNull()
@@ -347,11 +359,13 @@ class LockFlowViewModel(
                     drawingPngBase64 = match?.drawingPngBase64,
                     pinned = true,
                     archived = false,
-                    magicEffectId = fx.id
+                    magicEffectId = fx.id,
+                    updatedAt = System.currentTimeMillis()
                 )
                 notesRepo.upsert(note)
                 _resolvedNote.value = note
                 _resolvedNoteId.value = note.id
+                onNoteResolved?.invoke(note)
             }
             else -> {
                 _resolvedNote.value = null

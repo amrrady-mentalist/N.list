@@ -124,9 +124,9 @@ fun NoteEditScreen(
     var bodyField by remember(noteId) { mutableStateOf(TextFieldValue(existing?.body ?: "")) }
 
     LaunchedEffect(noteId) {
-        if (noteId != null && current.id != noteId) {
+        if (noteId != null) {
             val loaded = viewModel.getNote(noteId)
-            if (loaded != null) {
+            if (loaded != null && (current.id != loaded.id || current.body != loaded.body || current.title != loaded.title)) {
                 current = loaded
                 everPersisted = true
                 bodyField = TextFieldValue(loaded.body)

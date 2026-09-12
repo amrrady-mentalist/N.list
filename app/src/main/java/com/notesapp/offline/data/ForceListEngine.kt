@@ -35,9 +35,12 @@ object ForceListEngine {
 
         val trimmed = forceWord.trim()
         if (trimmed.isNotEmpty()) {
-            val idx = arr.indexOfFirst { it.trim() == trimmed }
+            val idx = arr.indexOfFirst { it.trim().equals(trimmed, ignoreCase = true) }
             if (idx > -1) {
-                arr.removeAt(idx)
+                val itemToInsert = arr.removeAt(idx)
+                val insertAt = (targetPos - 1).coerceAtMost(arr.size)
+                arr.add(insertAt, itemToInsert)
+            } else {
                 val insertAt = (targetPos - 1).coerceAtMost(arr.size)
                 arr.add(insertAt, trimmed)
             }

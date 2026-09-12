@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -232,8 +233,17 @@ private fun NotesApp(
     val lockScreenState by lockFlowViewModel.screen.collectAsState()
     val scope = rememberCoroutineScope()
 
-    // Immediately push any resolved note into NotesViewModel's memory cache
+    // Immediately push any resolved note synchronously into NotesViewModel's memory cache
     // so it is already present in the list and can be opened without delay or pop-in
+    DisposableEffect(lockFlowViewModel, notesViewModel) {
+        lockFlowViewModel.onNoteResolved = { note ->
+            notesViewModel.onNoteCreatedExternally(note)
+        }
+        onDispose {
+            lockFlowViewModel.onNoteResolved = null
+        }
+    }
+
     LaunchedEffect(resolvedNote) {
         resolvedNote?.let { note ->
             notesViewModel.onNoteCreatedExternally(note)
@@ -357,7 +367,10 @@ private fun NotesApp(
             notesRepo = notesRepo,
             themeRepo = themeRepo,
             isDarkTheme = isDarkTheme,
-            onBack = { screen = Screen.List },
+            onBack = {
+                notesViewModel.refresh()
+                screen = Screen.List
+            },
             onOpenEffect = { effectId -> screen = Screen.EffectEditor(effectId, Screen.MagicSettings) },
             onOpenForceLists = { screen = Screen.ForceLists },
             onOpenMultipleOuts = { screen = Screen.MultipleOuts },
