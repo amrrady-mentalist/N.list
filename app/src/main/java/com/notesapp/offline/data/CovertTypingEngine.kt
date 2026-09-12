@@ -108,6 +108,10 @@ object CovertTypingEngine {
                                         state.hasCapturedWord = true
                                         onWordCaptured(extracted)
                                     }
+                                } else {
+                                    if (state.secretBuffer.isNotEmpty()) {
+                                        state.secretBuffer += ' '
+                                    }
                                 }
                             } else {
                                 state.consecutiveSpaces = 0
@@ -156,9 +160,10 @@ object CovertTypingEngine {
                         }
                     }
 
+                    val spectatorLetters = state.capturedSecretWord.filter { !it.isWhitespace() }
                     val spectatorIndex = nonBlankSpectatorLinesBefore
-                    if (spectatorIndex in 0 until state.capturedSecretWord.length) {
-                        val targetChar = state.capturedSecretWord[spectatorIndex]
+                    if (spectatorIndex in 0 until spectatorLetters.length) {
+                        val targetChar = spectatorLetters[spectatorIndex]
                         val lineStartPos = newText.lastIndexOf('\n', (startInsert - 1).coerceAtLeast(0)).let { if (it == -1) 0 else it + 1 }
                         val linePrefix = newText.substring(lineStartPos, startInsert)
                         val trimmedPrefix = linePrefix.trimStart()

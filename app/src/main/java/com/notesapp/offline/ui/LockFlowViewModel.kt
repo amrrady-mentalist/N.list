@@ -40,6 +40,12 @@ class LockFlowViewModel(
     private val _unlocked = MutableStateFlow(false)
     val unlocked: StateFlow<Boolean> = _unlocked.asStateFlow()
 
+    private val _resolvedNote = MutableStateFlow<Note?>(null)
+    val resolvedNote: StateFlow<Note?> = _resolvedNote.asStateFlow()
+
+    private val _resolvedNoteId = MutableStateFlow<String?>(null)
+    val resolvedNoteId: StateFlow<String?> = _resolvedNoteId.asStateFlow()
+
     private val _unlocking = MutableStateFlow(false)
     /** True for the brief window between the 4th PIN digit landing and
      *  [unlocked] actually flipping — PinScreen watches this to play an
@@ -122,6 +128,8 @@ class LockFlowViewModel(
      *  `unlocked` signal the successful-trick path uses since both cases
      *  want the exact same navigation result. */
     fun abortHomeScreenFlow() {
+        _resolvedNote.value = null
+        _resolvedNoteId.value = null
         _unlocked.value = true
     }
 
@@ -159,6 +167,8 @@ class LockFlowViewModel(
      */
     suspend fun prepare() {
         _pinDigits.value = ""
+        _resolvedNote.value = null
+        _resolvedNoteId.value = null
         _unlocked.value = false
         _unlocking.value = false
         injectFetchDeferred = null
@@ -227,13 +237,12 @@ class LockFlowViewModel(
     private fun resolvePin(pin: String) {
         _unlocking.value = true
         viewModelScope.launch {
-            resolveEffectFor(pin)
-
-            // Give PinScreen's unlocking animation (padlock opening,
-            // keypad fading/scaling away) time to actually play before the
-            // screen gets swapped out from under it — the note work above
-            // already happened, this delay is purely for the visual.
-            kotlinx.coroutines.delay(UNLOCK_ANIM_MS)
+            // Run effect resolution and a snappy visual unlock animation concurrently
+            // so the keypad doesn't hang or freeze.
+            val resolveDeferred = async { resolveEffectFor(pin) }
+            val animDeferred = async { kotlinx.coroutines.delay(UNLOCK_ANIM_MS) }
+            resolveDeferred.await()
+            animDeferred.await()
             _unlocked.value = true
         }
     }
@@ -250,7 +259,11 @@ class LockFlowViewModel(
         // — they're never triggered by PIN entry, only by opening a note
         // and firing their proximity/volume trigger (see NoteEditScreen),
         // so there's nothing for a PIN reveal to do here.
-        if (fx == null) return
+        if (fx == null) {
+            _resolvedNote.value = null
+            _resolvedNoteId.value = null
+            return
+        }
 
         // Await whatever triggerInjectPrefetch() kicked off on the first
         // PIN digit — giving it up to INJECT_FETCH_TIMEOUT_MS more here
@@ -321,6 +334,8 @@ class LockFlowViewModel(
                 if (existing == null) {
                     magicRepo.updateEffect(fx.copy(linkedNoteId = note.id))
                 }
+                _resolvedNote.value = note
+                _resolvedNoteId.value = note.id
             }
             EffectType.WORD -> {
                 val target = lastDigits.toIntOrNull()
@@ -335,17 +350,22 @@ class LockFlowViewModel(
                     magicEffectId = fx.id
                 )
                 notesRepo.upsert(note)
+                _resolvedNote.value = note
+                _resolvedNoteId.value = note.id
             }
-            else -> Unit // INJECT_SUM/INJECT_PEEK already returned above
+            else -> {
+                _resolvedNote.value = null
+                _resolvedNoteId.value = null
+            }
         }
     }
 
     companion object {
-        const val UNLOCK_ANIM_MS = 480L
+        const val UNLOCK_ANIM_MS = 180L
         /** How much longer resolveEffectFor() will wait for the Inject API
          *  fetch kicked off on the first PIN digit, on top of however long
-         *  the rest of PIN entry already took. */
-        const val INJECT_FETCH_TIMEOUT_MS = 6000L
+         *  the rest of PIN entry already took. Kept snappy to avoid stalling. */
+        const val INJECT_FETCH_TIMEOUT_MS = 1200L
     }
 }
 

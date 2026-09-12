@@ -389,7 +389,7 @@ private fun PinScreen(viewModel: LockFlowViewModel, backgroundPath: String?) {
     // just hard-cutting in the instant the 4th digit lands.
     val unlockProgress by animateFloatAsState(
         targetValue = if (unlocking) 1f else 0f,
-        animationSpec = tween(360),
+        animationSpec = tween(180),
         label = "unlockProgress"
     )
 

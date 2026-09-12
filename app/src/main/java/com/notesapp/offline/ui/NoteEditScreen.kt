@@ -122,6 +122,17 @@ fun NoteEditScreen(
     var everPersisted by remember(noteId) { mutableStateOf(existing != null) }
     var showColorPicker by remember { mutableStateOf(false) }
     var bodyField by remember(noteId) { mutableStateOf(TextFieldValue(existing?.body ?: "")) }
+
+    LaunchedEffect(noteId) {
+        if (noteId != null && current.id != noteId) {
+            val loaded = viewModel.getNote(noteId)
+            if (loaded != null) {
+                current = loaded
+                everPersisted = true
+                bodyField = TextFieldValue(loaded.body)
+            }
+        }
+    }
     var activeBold by remember(noteId) { mutableStateOf(false) }
     var activeItalic by remember(noteId) { mutableStateOf(false) }
     var activeUnderline by remember(noteId) { mutableStateOf(false) }

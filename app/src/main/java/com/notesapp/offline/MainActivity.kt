@@ -227,8 +227,18 @@ private fun NotesApp(
     var editVersion by remember { mutableStateOf(0) }
     var effectVersion by remember { mutableStateOf(0) }
     val unlocked by lockFlowViewModel.unlocked.collectAsState()
+    val resolvedNote by lockFlowViewModel.resolvedNote.collectAsState()
+    val resolvedNoteId by lockFlowViewModel.resolvedNoteId.collectAsState()
     val lockScreenState by lockFlowViewModel.screen.collectAsState()
     val scope = rememberCoroutineScope()
+
+    // Immediately push any resolved note into NotesViewModel's memory cache
+    // so it is already present in the list and can be opened without delay or pop-in
+    LaunchedEffect(resolvedNote) {
+        resolvedNote?.let { note ->
+            notesViewModel.onNoteCreatedExternally(note)
+        }
+    }
 
     // The lock flow writes notes straight to NotesRepository, bypassing
     // NotesViewModel's in-memory cache (it can run before that ViewModel's
@@ -266,7 +276,12 @@ private fun NotesApp(
 
     if (screen is Screen.Lock) {
         if (unlocked) {
-            screen = Screen.List
+            val targetId = resolvedNoteId
+            screen = if (targetId != null) {
+                Screen.Edit(targetId)
+            } else {
+                Screen.List
+            }
         } else {
             LockFlowHost(lockFlowViewModel)
             return

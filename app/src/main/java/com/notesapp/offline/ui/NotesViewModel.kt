@@ -65,6 +65,21 @@ class NotesViewModel(private val repo: NotesRepository) : ViewModel() {
         }
     }
 
+    /**
+     * Synchronously inserts or updates a note into memory before any screen transition,
+     * ensuring zero delay, zero pop-in, and instant availability in the list and editor.
+     */
+    fun onNoteCreatedExternally(note: Note) {
+        val current = _allNotes.value
+        val idx = current.indexOfFirst { it.id == note.id }
+        _allNotes.value = if (idx >= 0) {
+            current.toMutableList().also { it[idx] = note }
+        } else {
+            listOf(note) + current
+        }
+        _loaded.value = true
+    }
+
     fun setFilter(f: NoteFilter) { _filter.value = f }
     fun setQuery(q: String) { _query.value = q }
 
